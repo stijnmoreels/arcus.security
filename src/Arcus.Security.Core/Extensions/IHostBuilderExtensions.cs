@@ -1,6 +1,6 @@
-﻿using Arcus.Security.Core;
+﻿using System;
+using Arcus.Security;
 using Microsoft.Extensions.Configuration;
-using System;
 using Microsoft.Extensions.DependencyInjection;
 
 // ReSharper disable once CheckNamespace
@@ -45,12 +45,12 @@ namespace Microsoft.Extensions.Hosting
             {
                 throw new ArgumentNullException(nameof(hostBuilder), "Requires a host builder to add the secret store");
             }
-            
+
             if (configureSecretStores is null)
             {
                 throw new ArgumentNullException(nameof(configureSecretStores), "Requires a function to register the secret providers in the secret store");
             }
-            
+
             return hostBuilder.ConfigureServices((context, services) =>
             {
                 services.AddSecretStore(stores => configureSecretStores(context, context.Configuration, stores));

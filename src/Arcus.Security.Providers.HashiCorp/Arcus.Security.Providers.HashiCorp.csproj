@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net6.0;netstandard2.1</TargetFrameworks>
+    <TargetFramework>net8.0</TargetFramework>
     <Authors>Arcus</Authors>
     <Description>Provides support for HashiCorp</Description>
     <Copyright>Copyright (c) Arcus</Copyright>
@@ -20,11 +20,11 @@
   <ItemGroup>
     <None Include="..\..\README.md" Pack="true" PackagePath="\" />
     <None Include="..\..\LICENSE" Pack="true" PackagePath="\" />
-    <None Include="..\..\docs\static\img\icon.png" Pack="true" PackagePath="\"/>
+    <None Include="..\..\docs\static\img\icon.png" Pack="true" PackagePath="\" />
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="VaultSharp" Version="1.7.0.3" />
+    <PackageReference Include="VaultSharp" Version="1.17.5.1" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,6 +1,6 @@
 ﻿using System;
 using System.Threading.Tasks;
-using Arcus.Security.Core;
+using Arcus.Security.Tests.Core.Assertion;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Xunit;
@@ -14,9 +14,9 @@ namespace Arcus.Security.Tests.Unit.CommandLine
         {
             // Arrange
             string secretName = "MySecret", expected = "P@ssw0rd";
-            var arguments = new[] {$"--{secretName}={expected}"};
+            var arguments = new[] { $"--{secretName}={expected}" };
             var builder = new HostBuilder();
-            
+
             // Act
             builder.ConfigureSecretStore((config, stores) => stores.AddCommandLine(arguments));
 
@@ -25,116 +25,19 @@ namespace Arcus.Security.Tests.Unit.CommandLine
             {
                 var provider = host.Services.GetRequiredService<ISecretProvider>();
 
-                Assert.Equal(expected, provider.GetRawSecret(secretName));
-                Assert.Equal(expected, provider.GetSecret(secretName).Value);
-                Assert.Equal(expected, await provider.GetRawSecretAsync(secretName));
-                Assert.Equal(expected, (await provider.GetSecretAsync(secretName)).Value);
+                await AssertProvider.ContainsSecretAsync(provider, secretName, expected);
             }
         }
-        
+
         [Fact]
         public void AddCommandLine_WithoutArguments_Fails()
         {
             // Arrange
             var builder = new HostBuilder();
-            
+
             // Act
             builder.ConfigureSecretStore((config, stores) => stores.AddCommandLine(arguments: null));
-            
-            // Assert
-            Assert.ThrowsAny<ArgumentException>(() => builder.Build());
-        }
 
-        [Fact]
-        public void AddCommandLine_WithNameWithoutArguments_Fails()
-        {
-            // Arrange
-            var builder = new HostBuilder();
-            
-            // Act
-            builder.ConfigureSecretStore((config, stores) => stores.AddCommandLine(arguments: null, name: "Command line"));
-            
-            // Assert
-            Assert.ThrowsAny<ArgumentException>(() => builder.Build());
-        }
-        
-        [Fact]
-        public void AddCommandLine_WithMutateSecretWithoutArguments_Fails()
-        {
-            // Arrange
-            var builder = new HostBuilder();
-            
-            // Act
-            builder.ConfigureSecretStore((config, stores) =>
-            {
-                stores.AddCommandLine(arguments: null, mutateSecretName: secretName => secretName);
-            });
-            
-            // Assert
-            Assert.ThrowsAny<ArgumentException>(() => builder.Build());
-        }
-
-        [Fact]
-        public void AddCommandLine_WithMutateSecretWithArguments_Fails()
-        {
-            // Arrange
-            string secretName = "MySecret", expected = "P@ssw0rd";
-            var arguments = new[] {$"--{secretName}={expected}"};
-            var builder = new HostBuilder();
-            
-            // Act
-            builder.ConfigureSecretStore((config, stores) =>
-            {
-                stores.AddCommandLine(arguments, mutateSecretName: name => name);
-            });
-            
-            // Assert
-            using (IHost host = builder.Build())
-            {
-                var secretProvider = host.Services.GetRequiredService<ISecretProvider>();
-                Assert.Equal(expected, secretProvider.GetSecret(secretName).Value);
-                Assert.Equal(expected, secretProvider.GetRawSecret(secretName));
-            }
-        }
-
-        [Fact]
-        public void AddCommandLine_WithMutateSecretWithArgumentsWithUnknownSecretName_Fails()
-        {
-            // Arrange
-            string secretName = "MySecret", expected = "P@ssw0rd";
-            var arguments = new[] {$"--{secretName}={expected}"};
-            var builder = new HostBuilder();
-            
-            // Act
-            builder.ConfigureSecretStore((config, stores) =>
-            {
-                stores.AddCommandLine(arguments, mutateSecretName: name => name);
-            });
-            
-            // Assert
-            using (IHost host = builder.Build())
-            {
-                var secretProvider = host.Services.GetRequiredService<ISecretProvider>();
-                Assert.Throws<SecretNotFoundException>(() => secretProvider.GetSecret("NotExisting"));
-                Assert.Throws<SecretNotFoundException>(() => secretProvider.GetRawSecret("NotExisting"));
-            }
-        }
-        
-        [Fact]
-        public void AddCommandLine_WithNameWithMutateSecretWithoutArguments_Fails()
-        {
-            // Arrange
-            var builder = new HostBuilder();
-            
-            // Act
-            builder.ConfigureSecretStore((config, stores) =>
-            {
-                stores.AddCommandLine(
-                    arguments: null,
-                    name: "Command line",
-                    mutateSecretName: secretName => secretName);
-            });
-            
             // Assert
             Assert.ThrowsAny<ArgumentException>(() => builder.Build());
         }

@@ -1,10 +1,10 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Threading.Tasks;
-using Arcus.Security.Core;
 using Arcus.Security.Core.Providers;
+using Arcus.Security.Tests.Core.Assertion;
+using Arcus.Security.Tests.Core.Fixture;
+using Bogus;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Xunit;
 
@@ -12,222 +12,69 @@ namespace Arcus.Security.Tests.Unit.Core
 {
     public class ConfigurationSecretProviderTests
     {
+        private static readonly Faker Bogus = new();
+
         [Fact]
-        public async Task ConfigureSecretStore_AddConfiguration_UsesIConfiguration()
+        public async Task AddConfiguration_WithDefault_UsesIConfiguration()
         {
             // Arrange
-            string secretKey = $"MySecret-{Guid.NewGuid()}";
-            string expected = $"secret-{Guid.NewGuid()}";
-            
-            IHostBuilder builder = new HostBuilder();
-            builder.ConfigureAppConfiguration(configBuilder =>
+            var secret = Secret.Generate();
+            using var secretStore = GivenSecretStore();
+
+            secretStore.WhenAppConfiguration(config =>
             {
-                configBuilder.AddInMemoryCollection(new[]
-                {
-                    new KeyValuePair<string, string>(secretKey, expected)
-                });
+                config.AddInMemoryCollection([secret]);
             });
 
             // Act
-            builder.ConfigureSecretStore((config, stores) =>
+            secretStore.WhenSecretProvider((config, store) =>
             {
-                stores.AddConfiguration(config);
+                store.AddConfiguration(config);
             });
 
             // Assert
-            IHost host = builder.Build();
-            var provider = host.Services.GetRequiredService<ISecretProvider>();
-
-            Assert.Equal(expected, provider.GetRawSecret(secretKey));
-            Assert.Equal(expected, provider.GetSecret(secretKey).Value);
-            Assert.Equal(expected, await provider.GetRawSecretAsync(secretKey));
-            Assert.Equal(expected, (await provider.GetSecretAsync(secretKey)).Value);
+            secretStore.ShouldContainProvider<ConfigurationSecretProvider>();
+            await secretStore.ShouldContainSecretAsync(secret);
         }
 
         [Fact]
-        public async Task ConfigureSecretStore_AddConfigurationWithOptions_UsesIConfiguration()
+        public async Task AddConfiguration_WithOptions_UsesIConfigurationWithOptions()
         {
             // Arrange
-            string secretKey = $"MySecret-{Guid.NewGuid()}";
-            string expected = $"secret-{Guid.NewGuid()}";
-            
-            IHostBuilder builder = new HostBuilder();
-            builder.ConfigureAppConfiguration(configBuilder =>
+            string name = $"config-{Bogus.Random.Guid()}";
+            var secret = Secret.Generate();
+            using var secretStore = GivenSecretStore();
+
+            secretStore.WhenAppConfiguration(config =>
             {
-                configBuilder.AddInMemoryCollection(new[]
-                {
-                    new KeyValuePair<string, string>(secretKey, expected)
-                });
+                config.AddInMemoryCollection([secret]);
             });
 
             // Act
-            builder.ConfigureSecretStore((config, stores) =>
+            secretStore.WhenSecretProvider((config, store) =>
             {
-                stores.AddConfiguration(config, name: "Some name", mutateSecretName: null);
+                store.AddConfiguration(config, opt =>
+                {
+                    opt.Name = name;
+                });
             });
 
             // Assert
-            IHost host = builder.Build();
-            var provider = host.Services.GetRequiredService<ISecretProvider>();
-
-            Assert.Equal(expected, provider.GetRawSecret(secretKey));
-            Assert.Equal(expected, provider.GetSecret(secretKey).Value);
-            Assert.Equal(expected, await provider.GetRawSecretAsync(secretKey));
-            Assert.Equal(expected, (await provider.GetSecretAsync(secretKey)).Value);
+            secretStore.ShouldContainProvider<ConfigurationSecretProvider>(name);
+            await secretStore.ShouldContainSecretAsync(secret);
         }
 
         [Fact]
         public async Task ConfigureSecretStore_AddEmptyConfiguration_CantFindConfigKey()
         {
             // Arrange
-            var builder = new HostBuilder();
+            var secretStore = SecretStoreTestContext.Given();
 
             // Act
-            builder.ConfigureSecretStore((config, stores) => stores.AddConfiguration(config));
+            secretStore.WhenSecretProvider((config, store) => store.AddConfiguration(config));
 
             // Assert
-            IHost host = builder.Build();
-            var provider = host.Services.GetRequiredService<ISecretProvider>();
-
-            Assert.Throws<SecretNotFoundException>(() => provider.GetSecret("MySecret"));
-            Assert.Throws<SecretNotFoundException>(() => provider.GetRawSecret("MySecret"));
-            await Assert.ThrowsAsync<SecretNotFoundException>(() => provider.GetSecretAsync("MySecret"));
-            await Assert.ThrowsAsync<SecretNotFoundException>(() => provider.GetRawSecretAsync("MySecret"));
-        }
-
-        [Fact]
-        public async Task ConfigureSecretStore_AddEmptyConfigurationWithOptions_CantFindConfigKey()
-        {
-            // Arrange
-            var builder = new HostBuilder();
-
-            // Act
-            builder.ConfigureSecretStore((config, stores) =>
-            {
-                stores.AddConfiguration(config, name: "Some name", mutateSecretName: null);
-            });
-
-            // Assert
-            IHost host = builder.Build();
-            var provider = host.Services.GetRequiredService<ISecretProvider>();
-
-            Assert.Throws<SecretNotFoundException>(() => provider.GetSecret("MySecret"));
-            Assert.Throws<SecretNotFoundException>(() => provider.GetRawSecret("MySecret"));
-            await Assert.ThrowsAsync<SecretNotFoundException>(() => provider.GetSecretAsync("MySecret"));
-            await Assert.ThrowsAsync<SecretNotFoundException>(() => provider.GetRawSecretAsync("MySecret"));
-        }
-
-        [Fact]
-        public async Task ConfigureSecretStore_WithDotsToDoublePoints_FindsConfigKey()
-        {
-            // Arrange
-            string expected = $"secret-{Guid.NewGuid()}";
-            IHostBuilder builder = new HostBuilder()
-                .ConfigureAppConfiguration(configBuilder => configBuilder.AddInMemoryCollection(new[]
-                {
-                    new KeyValuePair<string, string>("Arcus:ServicePrincipal:ClientId", expected)
-                }));
-
-            // Act
-            builder.ConfigureSecretStore((config, stores) => stores.AddConfiguration(config, name => name.Replace(".", ":")));
-
-            // Assert
-            IHost host = builder.Build();
-            var provider = host.Services.GetRequiredService<ISecretProvider>();
-
-            var secretName = "Arcus.ServicePrincipal.ClientId";
-            Assert.Equal(expected, provider.GetRawSecret(secretName));
-            Assert.Equal(expected, provider.GetSecret(secretName).Value);
-            Assert.Equal(expected, await provider.GetRawSecretAsync(secretName));
-            Assert.Equal(expected, (await provider.GetSecretAsync(secretName)).Value);
-        }
-
-        [Fact]
-        public async Task ConfigureSecretStore_WithOptionsWithDotsToDoublePoints_FindsConfigKey()
-        {
-            // Arrange
-            string expected = $"secret-{Guid.NewGuid()}";
-            IHostBuilder builder = new HostBuilder();
-            builder.ConfigureAppConfiguration(configBuilder =>
-            {
-                configBuilder.AddInMemoryCollection(new[]
-                {
-                    new KeyValuePair<string, string>("Arcus:ServicePrincipal:ClientId", expected)
-                });
-            });
-
-            // Act
-            builder.ConfigureSecretStore((config, stores) =>
-            {
-                stores.AddConfiguration(config, mutateSecretName: name => name.Replace(".", ":"), name: null);
-            });
-
-            // Assert
-            IHost host = builder.Build();
-            var provider = host.Services.GetRequiredService<ISecretProvider>();
-
-            var secretName = "Arcus.ServicePrincipal.ClientId";
-            Assert.Equal(expected, provider.GetRawSecret(secretName));
-            Assert.Equal(expected, provider.GetSecret(secretName).Value);
-            Assert.Equal(expected, await provider.GetRawSecretAsync(secretName));
-            Assert.Equal(expected, (await provider.GetSecretAsync(secretName)).Value);
-        }
-
-        [Fact]
-        public async Task ConfigureSecretStore_WithWrongMutation_DoesntFindConfigKey()
-        {
-            // Arrange
-            var secretName = "Arcus:ServicePrincipal:ClientId";
-            IHostBuilder builder = new HostBuilder()
-                .ConfigureAppConfiguration(configBuilder =>
-                {
-                    configBuilder.AddInMemoryCollection(new[]
-                    {
-                        new KeyValuePair<string, string>(secretName, Guid.NewGuid().ToString())
-                    });
-                });
-
-            // Act
-            builder.ConfigureSecretStore((config, stores) => stores.AddConfiguration(config, name => name.Replace(":", ".")));
-
-            // Assert
-            IHost host = builder.Build();
-            var provider = host.Services.GetRequiredService<ISecretProvider>();
-
-            Assert.Throws<SecretNotFoundException>(() => provider.GetSecret(secretName));
-            Assert.Throws<SecretNotFoundException>(() => provider.GetRawSecret(secretName));
-            await Assert.ThrowsAsync<SecretNotFoundException>(() => provider.GetSecretAsync(secretName));
-            await Assert.ThrowsAsync<SecretNotFoundException>(() => provider.GetRawSecretAsync(secretName));
-        }
-
-        [Fact]
-        public async Task ConfigureSecretStore_WithOptionsWithWrongMutation_DoesntFindConfigKey()
-        {
-            // Arrange
-            IHostBuilder builder = new HostBuilder();
-            var secretName = "Arcus:ServicePrincipal:ClientId";
-            builder.ConfigureAppConfiguration(configBuilder =>
-            {
-                configBuilder.AddInMemoryCollection(new[]
-                {
-                    new KeyValuePair<string, string>(secretName, Guid.NewGuid().ToString())
-                });
-            });
-
-            // Act
-            builder.ConfigureSecretStore((config, stores) =>
-            {
-                stores.AddConfiguration(config, mutateSecretName: name => name.Replace(":", "."), name: null);
-            });
-
-            // Assert
-            IHost host = builder.Build();
-            var provider = host.Services.GetRequiredService<ISecretProvider>();
-
-            Assert.Throws<SecretNotFoundException>(() => provider.GetSecret(secretName));
-            Assert.Throws<SecretNotFoundException>(() => provider.GetRawSecret(secretName));
-            await Assert.ThrowsAsync<SecretNotFoundException>(() => provider.GetSecretAsync(secretName));
-            await Assert.ThrowsAsync<SecretNotFoundException>(() => provider.GetRawSecretAsync(secretName));
+            await secretStore.ShouldNotContainSecretAsync("MySecret");
         }
 
         [Fact]
@@ -237,80 +84,15 @@ namespace Arcus.Security.Tests.Unit.Core
             var builder = new HostBuilder();
 
             // Act
-            builder.ConfigureSecretStore((config, stores) => stores.AddConfiguration(configuration: null));
+            builder.ConfigureSecretStore((_, stores) => stores.AddConfiguration(configuration: null));
 
             // Assert
             Assert.ThrowsAny<ArgumentException>(() => builder.Build());
         }
 
-        [Fact]
-        public void ConfigureSecretStore_WithoutConfigurationWithOptions_Throws()
+        private static SecretStoreTestContext GivenSecretStore()
         {
-            // Arrange
-            var builder = new HostBuilder();
-
-            // Act
-            builder.ConfigureSecretStore((config, stores) =>
-            {
-                stores.AddConfiguration(configuration: null, name: "Some name", mutateSecretName: name => name);
-            });
-
-            // Assert
-            Assert.ThrowsAny<ArgumentException>(() => builder.Build());
-        }
-
-        [Theory]
-        [ClassData(typeof(Blanks))]
-        public async Task GetSecretAsync_WithoutSecretName_Throws(string secretName)
-        {
-            // Arrange
-            IConfiguration configuration = new ConfigurationBuilder().Build();
-            var provider = new ConfigurationSecretProvider(configuration);
-
-            // Act / Assert
-            await Assert.ThrowsAnyAsync<ArgumentException>(() => provider.GetSecretAsync(secretName));
-        }
-
-        [Theory]
-        [ClassData(typeof(Blanks))]
-        public async Task GetRawSecretAsync_WithoutSecretName_Throws(string secretName)
-        {
-            // Arrange
-            IConfiguration configuration = new ConfigurationBuilder().Build();
-            var provider = new ConfigurationSecretProvider(configuration);
-
-            // Act / Assert
-            await Assert.ThrowsAnyAsync<ArgumentException>(() => provider.GetRawSecretAsync(secretName));
-        }
-
-        [Theory]
-        [ClassData(typeof(Blanks))]
-        public void GetSecret_WithoutSecretName_Throws(string secretName)
-        {
-            // Arrange
-            IConfiguration configuration = new ConfigurationBuilder().Build();
-            var provider = new ConfigurationSecretProvider(configuration);
-
-            // Act / Assert
-            Assert.ThrowsAny<ArgumentException>(() => provider.GetSecret(secretName));
-        }
-
-        [Theory]
-        [ClassData(typeof(Blanks))]
-        public void GetRawSecret_WithoutSecretName_Throws(string secretName)
-        {
-            // Arrange
-            IConfiguration configuration = new ConfigurationBuilder().Build();
-            var provider = new ConfigurationSecretProvider(configuration);
-
-            // Act / Assert
-            Assert.ThrowsAny<ArgumentException>(() => provider.GetRawSecret(secretName));
-        }
-
-        [Fact]
-        public void CreateProvider_WithoutConfiguration_Throws()
-        {
-            Assert.ThrowsAny<ArgumentException>(() => new ConfigurationSecretProvider(configuration: null));
+            return SecretStoreTestContext.Given();
         }
     }
 }

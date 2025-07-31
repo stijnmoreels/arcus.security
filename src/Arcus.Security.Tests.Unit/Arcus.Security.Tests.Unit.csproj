@@ -1,10 +1,19 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <TargetFrameworks>net8.0;net6.0</TargetFrameworks>
+    <TargetFramework>net8.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <NoWarn>CS0618</NoWarn>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="KeyVault\Authentication\**" />
+    <Compile Remove="KeyVault\Extensions\**" />
+    <EmbeddedResource Remove="KeyVault\Authentication\**" />
+    <EmbeddedResource Remove="KeyVault\Extensions\**" />
+    <None Remove="KeyVault\Authentication\**" />
+    <None Remove="KeyVault\Extensions\**" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Bogus" Version="34.0.2" />
@@ -36,7 +45,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="KeyVault\Authentication\" />
+    <Folder Include="Core\Stubs\" />
+    <Folder Include="KeyVault\Configuration\" />
+    <Folder Include="KeyVault\Doubles\" />
   </ItemGroup>
 
 </Project>

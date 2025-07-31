@@ -1,8 +1,7 @@
 ﻿using System;
 using System.IO;
+using Arcus.Security;
 using Arcus.Security.Providers.DockerSecrets;
-using Microsoft.Extensions.Configuration.KeyPerFile;
-using Microsoft.Extensions.FileProviders;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.Hosting
@@ -17,12 +16,11 @@ namespace Microsoft.Extensions.Hosting
         /// </summary>
         /// <param name="builder">The builder to add the Docker secrets provider to.</param>
         /// <param name="directoryPath">The path inside the container where the Docker secrets are located.</param>
-        /// <param name="mutateSecretName">The optional function to mutate the secret name before looking it up.</param>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> is <c>null</c>.</exception>
         /// <exception cref="ArgumentException">Throw when the <paramref name="directoryPath"/> is blank or is not an absolute path.</exception>
-        public static SecretStoreBuilder AddDockerSecrets(this SecretStoreBuilder builder, string directoryPath, Func<string, string> mutateSecretName = null)
+        public static SecretStoreBuilder AddDockerSecrets(this SecretStoreBuilder builder, string directoryPath)
         {
-            return AddDockerSecrets(builder, directoryPath, name: null, mutateSecretName: mutateSecretName);
+            return AddDockerSecrets(builder, directoryPath, configureOptions: null);
         }
 
         /// <summary>
@@ -30,16 +28,14 @@ namespace Microsoft.Extensions.Hosting
         /// </summary>
         /// <param name="builder">The builder to add the Docker secrets provider to.</param>
         /// <param name="directoryPath">The path inside the container where the Docker secrets are located.</param>
-        /// <param name="name">The unique name to register this HashiCorp provider in the secret store.</param>
-        /// <param name="mutateSecretName">The optional function to mutate the secret name before looking it up.</param>
+        /// <param name="configureOptions">The additional options to configure the secret provider.</param>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> is <c>null</c>.</exception>
         /// <exception cref="ArgumentException">Throw when the <paramref name="directoryPath"/> is blank or is not an absolute path.</exception>
         /// <exception cref="DirectoryNotFoundException">Thrown when the <paramref name="directoryPath"/> is not found on the system.</exception>
         public static SecretStoreBuilder AddDockerSecrets(
-            this SecretStoreBuilder builder, 
-            string directoryPath, 
-            string name,
-            Func<string, string> mutateSecretName)
+            this SecretStoreBuilder builder,
+            string directoryPath,
+            Action<SecretProviderOptions> configureOptions)
         {
             if (builder is null)
             {
@@ -61,20 +57,7 @@ namespace Microsoft.Extensions.Hosting
                 throw new DirectoryNotFoundException($"The directory {directoryPath} which is configured as secretsDirectoryPath does not exist.");
             }
 
-            var configuration = new KeyPerFileConfigurationSource
-            {
-                FileProvider = new PhysicalFileProvider(directoryPath),
-                Optional = false
-            };
-
-            var provider = new KeyPerFileConfigurationProvider(configuration);
-            provider.Load();
-            
-            return builder.AddProvider(new DockerSecretsSecretProvider(directoryPath), options =>
-            {
-                options.Name = name;
-                options.MutateSecretName = mutateSecretName;
-            });
+            return builder.AddProvider((_, options) => new DockerSecretsSecretProvider(directoryPath, options), configureOptions);
         }
     }
 }

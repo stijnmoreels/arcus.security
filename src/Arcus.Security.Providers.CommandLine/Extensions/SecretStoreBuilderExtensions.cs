@@ -1,4 +1,5 @@
 ﻿using System;
+using Arcus.Security;
 using Arcus.Security.Providers.CommandLine;
 using Microsoft.Extensions.Configuration.CommandLine;
 
@@ -18,7 +19,7 @@ namespace Microsoft.Extensions.Hosting
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> or <paramref name="arguments"/> is <c>null</c>.</exception>
         public static SecretStoreBuilder AddCommandLine(this SecretStoreBuilder builder, string[] arguments)
         {
-            return AddCommandLine(builder, arguments, name: null);
+            return AddCommandLine(builder, arguments, configureOptions: null);
         }
 
         /// <summary>
@@ -26,34 +27,9 @@ namespace Microsoft.Extensions.Hosting
         /// </summary>
         /// <param name="builder">The secret store to add the command line arguments to.</param>
         /// <param name="arguments">The command line arguments that will be considered secrets.</param>
-        /// <param name="name">The unique name to register this provider in the secret store.</param>
+        /// <param name="configureOptions">The additional options to configure the secret provider.</param>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> or <paramref name="arguments"/> is <c>null</c>.</exception>
-        public static SecretStoreBuilder AddCommandLine(this SecretStoreBuilder builder, string[] arguments, string name)
-        {
-            return AddCommandLine(builder, arguments, name, mutateSecretName: null);
-        }
-
-        /// <summary>
-        /// Adds command line arguments as secrets to the secret store.
-        /// </summary>
-        /// <param name="builder">The secret store to add the command line arguments to.</param>
-        /// <param name="arguments">The command line arguments that will be considered secrets.</param>
-        /// <param name="mutateSecretName">The function to mutate the secret name before looking it up.</param>
-        /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> or <paramref name="arguments"/> is <c>null</c>.</exception>
-        public static SecretStoreBuilder AddCommandLine(this SecretStoreBuilder builder, string[] arguments, Func<string, string> mutateSecretName)
-        {
-            return AddCommandLine(builder, arguments, name: null, mutateSecretName: mutateSecretName);
-        }
-
-        /// <summary>
-        /// Adds command line arguments as secrets to the secret store.
-        /// </summary>
-        /// <param name="builder">The secret store to add the command line arguments to.</param>
-        /// <param name="arguments">The command line arguments that will be considered secrets.</param>
-        /// <param name="name">The unique name to register this provider in the secret store.</param>
-        /// <param name="mutateSecretName">The function to mutate the secret name before looking it up.</param>
-        /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> or <paramref name="arguments"/> is <c>null</c>.</exception>
-        public static SecretStoreBuilder AddCommandLine(this SecretStoreBuilder builder, string[] arguments, string name, Func<string, string> mutateSecretName)
+        public static SecretStoreBuilder AddCommandLine(this SecretStoreBuilder builder, string[] arguments, Action<SecretProviderOptions> configureOptions)
         {
             if (builder is null)
             {
@@ -65,15 +41,13 @@ namespace Microsoft.Extensions.Hosting
                 throw new ArgumentNullException(nameof(arguments));
             }
 
-            var configProvider = new CommandLineConfigurationProvider(arguments);
-            configProvider.Load();
-            
-            var secretProvider = new CommandLineSecretProvider(configProvider);
-            return builder.AddProvider(secretProvider, options =>
+            return builder.AddProvider((_, options) =>
             {
-                options.Name = name;
-                options.MutateSecretName = mutateSecretName;
-            });
+                var configProvider = new CommandLineConfigurationProvider(arguments);
+                configProvider.Load();
+
+                return new CommandLineSecretProvider(configProvider, options);
+            }, configureOptions);
         }
     }
 }

@@ -1,10 +1,8 @@
-﻿using Arcus.Security.Core;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using System;
+﻿using System;
 using System.IO;
 using System.Threading.Tasks;
-using Arcus.Security.Providers.DockerSecrets;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -36,9 +34,7 @@ namespace Arcus.Security.Tests.Integration.DockerSecrets
             IHost host = hostBuilder.Build();
             var secretProvider = host.Services.GetRequiredService<ISecretProvider>();
 
-            Assert.Equal(expectedValue, secretProvider.GetRawSecret(secretKey));
             Assert.Equal(expectedValue, secretProvider.GetSecret(secretKey).Value);
-            Assert.Equal(expectedValue, await secretProvider.GetRawSecretAsync(secretKey));
             Assert.Equal(expectedValue, (await secretProvider.GetSecretAsync(secretKey)).Value);
         }
 
@@ -46,16 +42,18 @@ namespace Arcus.Security.Tests.Integration.DockerSecrets
         public async Task DockerSecretsProvider_ReturnsNull_WhenSecretNotFound()
         {
             // Arrange
-            var provider = new DockerSecretsSecretProvider(_secretLocation);
-            
-            // Act
+            var hostBuilder = new HostBuilder();
             await SetSecretAsync("MyExistingSecret", "foo");
 
+            // Act
+            hostBuilder.ConfigureSecretStore((config, stores) => stores.AddDockerSecrets(_secretLocation));
+
             // Assert
+            IHost host = hostBuilder.Build();
+            var provider = host.Services.GetRequiredService<ISecretProvider>();
+
             var secretName = "MyNonExistingSecret";
-            Assert.Null(provider.GetRawSecret(secretName));
             Assert.Null(provider.GetSecret(secretName));
-            Assert.Null(await provider.GetRawSecretAsync(secretName));
             Assert.Null((await provider.GetSecretAsync(secretName)));
         }
 
@@ -77,9 +75,7 @@ namespace Arcus.Security.Tests.Integration.DockerSecrets
             var secretProvider = host.Services.GetRequiredService<ISecretProvider>();
 
             var secretName = "ConnectionStrings:PersonDb";
-            Assert.Equal(expectedValue, secretProvider.GetRawSecret(secretName));
             Assert.Equal(expectedValue, secretProvider.GetSecret(secretName).Value);
-            Assert.Equal(expectedValue, await secretProvider.GetRawSecretAsync(secretName));
             Assert.Equal(expectedValue, (await secretProvider.GetSecretAsync(secretName)).Value);
         }
 
@@ -88,10 +84,10 @@ namespace Arcus.Security.Tests.Integration.DockerSecrets
         {
             // Arrange
             var hostBuilder = new HostBuilder();
-            
+
             // Act
             hostBuilder.ConfigureSecretStore((config, stores) => stores.AddDockerSecrets("./foo"));
-            
+
             // Assert
             Assert.ThrowsAny<ArgumentException>(() => hostBuilder.Build());
         }
@@ -101,10 +97,10 @@ namespace Arcus.Security.Tests.Integration.DockerSecrets
         {
             // Arrange
             var hostBuilder = new HostBuilder();
-            
+
             // Act
             hostBuilder.ConfigureSecretStore((config, stores) => stores.AddDockerSecrets("/foo/bar"));
-            
+
             // Assert
             Assert.Throws<DirectoryNotFoundException>(() => hostBuilder.Build());
         }

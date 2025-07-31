@@ -25,7 +25,7 @@ namespace Arcus.Security.Tests.Unit.HashiCorp
             var userName = Guid.NewGuid().ToString();
             var password = Guid.NewGuid().ToString();
             var settings = new VaultClientSettings("https://vault.server:245", new UserPassAuthMethodInfo(userName, password));
-            
+
             // Act / Assert
             Assert.ThrowsAny<ArgumentException>(
                 () => new HashiCorpSecretProvider(settings, secretPath: null, options: new HashiCorpVaultOptions(), logger: null));
@@ -67,23 +67,6 @@ namespace Arcus.Security.Tests.Unit.HashiCorp
 
             // Act / Assert
             await Assert.ThrowsAnyAsync<ArgumentException>(() => provider.GetSecretAsync(secretName));
-        }
-
-        [Theory]
-        [InlineData(null)]
-        [InlineData("")]
-        [InlineData("  ")]
-        public async Task GetRawSecret_WithoutSecretName_Throws(string secretName)
-        {
-            // Arrange
-            var provider = new HashiCorpSecretProvider(
-                new VaultClientSettings("https://vault.server:246", new TokenAuthMethodInfo("vault.token")), 
-                secretPath: "secret/path",
-                options: new HashiCorpVaultOptions(),
-                logger: null);
-
-            // Act / Assert
-            await Assert.ThrowsAnyAsync<ArgumentException>(() => provider.GetRawSecretAsync(secretName));
         }
     }
 }

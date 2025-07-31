@@ -1,12 +1,9 @@
 ﻿using System;
-using System.Net;
-using Arcus.Security.Core;
 using Arcus.Security.Providers.HashiCorp.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using VaultSharp;
-using VaultSharp.Core;
 using VaultSharp.V1.AuthMethods;
 using VaultSharp.V1.AuthMethods.Kubernetes;
 using VaultSharp.V1.AuthMethods.UserPass;
@@ -135,17 +132,17 @@ namespace Arcus.Security.Providers.HashiCorp.Extensions
                 throw new ArgumentException("Requires a HashiCorp Vault server URI with HTTP port", nameof(vaultServerUriWithPort));
             }
 
-            var options = new HashiCorpVaultUserPassOptions();
-            configureOptions?.Invoke(options);
-
-            IAuthMethodInfo authenticationMethod = new UserPassAuthMethodInfo(options.UserPassMountPoint, username, password);
-            var settings = new VaultClientSettings(vaultServerUriWithPort, authenticationMethod);
-
-            return AddHashiCorpVault(builder, settings, secretPath, options, configureSecretProviderOptions: secretProviderOptions =>
+            return builder.AddProvider((serviceProvider, options) =>
             {
-                secretProviderOptions.Name = name;
-                secretProviderOptions.MutateSecretName = mutateSecretName;
-            });
+                IAuthMethodInfo authenticationMethod = new UserPassAuthMethodInfo(options.UserPassMountPoint, username, password);
+                var settings = new VaultClientSettings(vaultServerUriWithPort, authenticationMethod);
+
+                var logger = serviceProvider.GetService<ILogger<HashiCorpSecretProvider>>();
+                var provider = new HashiCorpSecretProvider(settings, secretPath, options, logger);
+
+                return provider;
+
+            }, configureOptions);
         }
 
         /// <summary>
@@ -178,7 +175,7 @@ namespace Arcus.Security.Providers.HashiCorp.Extensions
             string jsonWebToken,
             string secretPath)
         {
-            return AddHashiCorpVaultWithKubernetes(builder, vaultServerUriWithPort, roleName, jsonWebToken, secretPath, configureOptions: null, name: null, mutateSecretName: null);
+            return AddHashiCorpVaultWithKubernetes(builder, vaultServerUriWithPort, roleName, jsonWebToken, secretPath, configureOptions: null);
         }
 
         /// <summary>
@@ -199,8 +196,6 @@ namespace Arcus.Security.Providers.HashiCorp.Extensions
         /// <param name="jsonWebToken">The service account JWT used to access the TokenReview API to validate other JWTs during login.</param>
         /// <param name="secretPath">The secret path where the secret provider should look for secrets.</param>
         /// <param name="configureOptions"></param>
-        /// <param name="name">The unique name to register this HashiCorp provider in the secret store.</param>
-        /// <param name="mutateSecretName">The optional function to mutate the secret name before looking it up.</param>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/>.</exception>
         /// <exception cref="ArgumentException">
         ///     Thrown when the <paramref name="vaultServerUriWithPort"/> is blank or doesn't represent a valid URI,
@@ -213,9 +208,7 @@ namespace Arcus.Security.Providers.HashiCorp.Extensions
             string roleName,
             string jsonWebToken,
             string secretPath,
-            Action<HashiCorpVaultKubernetesOptions> configureOptions,
-            string name,
-            Func<string, string> mutateSecretName)
+            Action<HashiCorpVaultKubernetesOptions> configureOptions)
         {
             if (string.IsNullOrWhiteSpace(vaultServerUriWithPort))
             {
@@ -231,23 +224,23 @@ namespace Arcus.Security.Providers.HashiCorp.Extensions
             {
                 throw new ArgumentException("Requires a path where the HashiCorp Vault secrets are stored", nameof(secretPath));
             }
-            
+
             if (!Uri.IsWellFormedUriString(vaultServerUriWithPort, UriKind.RelativeOrAbsolute))
             {
                 throw new ArgumentException("Requires a HashiCorp Vault server URI with HTTP port", nameof(vaultServerUriWithPort));
             }
 
-            var options = new HashiCorpVaultKubernetesOptions();
-            configureOptions?.Invoke(options);
-
-            IAuthMethodInfo authenticationMethod = new KubernetesAuthMethodInfo(options.KubernetesMountPoint, roleName, jsonWebToken);
-            var settings = new VaultClientSettings(vaultServerUriWithPort, authenticationMethod);
-
-            return AddHashiCorpVault(builder, settings, secretPath, options, configureSecretProviderOptions: secretProviderOptions =>
+            return builder.AddProvider((serviceProvider, options) =>
             {
-                secretProviderOptions.Name = name;
-                secretProviderOptions.MutateSecretName = mutateSecretName;
-            });
+                IAuthMethodInfo authenticationMethod = new KubernetesAuthMethodInfo(options.KubernetesMountPoint, roleName, jsonWebToken);
+                var settings = new VaultClientSettings(vaultServerUriWithPort, authenticationMethod);
+
+                var logger = serviceProvider.GetService<ILogger<HashiCorpSecretProvider>>();
+                var provider = new HashiCorpSecretProvider(settings, secretPath, options, logger);
+
+                return provider;
+
+            }, configureOptions);
         }
 
         /// <summary>
@@ -273,7 +266,7 @@ namespace Arcus.Security.Providers.HashiCorp.Extensions
             VaultClientSettings settings,
             string secretPath)
         {
-            return AddHashiCorpVault(builder, settings, secretPath, configureOptions: null, name: null, mutateSecretName: null);
+            return AddHashiCorpVault(builder, settings, secretPath, configureOptions: null);
         }
 
         /// <summary>
@@ -288,8 +281,6 @@ namespace Arcus.Security.Providers.HashiCorp.Extensions
         /// <param name="settings"></param>
         /// <param name="secretPath">The secret path where the secret provider should look for secrets.</param>
         /// <param name="configureOptions">The function to set the additional options to configure the HashiCorp Vault KeyValue.</param>
-        /// <param name="name">The unique name to register this HashiCorp provider in the secret store.</param>
-        /// <param name="mutateSecretName">The optional function to mutate the secret name before looking it up.</param>
         /// <exception cref="ArgumentNullException">
         ///     Thrown when the <paramref name="builder"/>, <paramref name="settings"/> or <paramref name="secretPath"/> is <c>null</c>.
         /// </exception>
@@ -301,81 +292,7 @@ namespace Arcus.Security.Providers.HashiCorp.Extensions
             this SecretStoreBuilder builder,
             VaultClientSettings settings,
             string secretPath,
-            Action<HashiCorpVaultOptions> configureOptions,
-            string name,
-            Func<string, string> mutateSecretName)
-        {
-            var options = new HashiCorpVaultOptions();
-            configureOptions?.Invoke(options);
-
-            return AddHashiCorpVault(builder, settings, secretPath, options, configureSecretProviderOptions: secretProviderOptions =>
-            {
-                secretProviderOptions.Name = name;
-                secretProviderOptions.MutateSecretName = mutateSecretName;
-            });
-        }
-        
-        /// <summary>
-        /// <para>
-        ///     Adds the secrets of a HashiCorp Vault KeyValue engine to the secret store.
-        /// </para>
-        /// <para>
-        ///     See more information on HashiCorp: <a href="https://www.vaultproject.io/docs" />.
-        /// </para>
-        /// </summary>
-        /// <typeparam name="TSecretProvider">The custom implementation type that implements the <see cref="HashiCorpSecretProvider"/>.</typeparam>
-        /// <param name="builder">The builder to add the HashiCorp secrets from the KeyValue Vault to.</param>
-        /// <param name="implementationFactory">The factory function to create an implementation of the <see cref="HashiCorpSecretProvider"/>.</param>
-        /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> or the <paramref name="implementationFactory"/> is <c>null</c>.</exception>
-        public static SecretStoreBuilder AddHashiCorpVault<TSecretProvider>(
-            this SecretStoreBuilder builder, 
-            Func<IServiceProvider, TSecretProvider> implementationFactory)
-            where TSecretProvider : HashiCorpSecretProvider
-        {
-            return AddHashiCorpVault(builder, implementationFactory, name: null, mutateSecretName: null);
-        }
-
-        /// <summary>
-        /// <para>
-        ///     Adds the secrets of a HashiCorp Vault KeyValue engine to the secret store.
-        /// </para>
-        /// <para>
-        ///     See more information on HashiCorp: <a href="https://www.vaultproject.io/docs" />.
-        /// </para>
-        /// </summary>
-        /// <typeparam name="TSecretProvider">The custom implementation type that implements the <see cref="HashiCorpSecretProvider"/>.</typeparam>
-        /// <param name="builder">The builder to add the HashiCorp secrets from the KeyValue Vault to.</param>
-        /// <param name="implementationFactory">The factory function to create an implementation of the <see cref="HashiCorpSecretProvider"/>.</param>
-        /// <param name="name">The unique name to register this HashiCorp provider in the secret store.</param>
-        /// <param name="mutateSecretName">The optional function to mutate the secret name before looking it up.</param>
-        /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> or the <paramref name="implementationFactory"/> is <c>null</c>.</exception>
-        public static SecretStoreBuilder AddHashiCorpVault<TSecretProvider>(
-            this SecretStoreBuilder builder, 
-            Func<IServiceProvider, TSecretProvider> implementationFactory,
-            string name,
-            Func<string, string> mutateSecretName)
-            where TSecretProvider : HashiCorpSecretProvider
-        {
-            if (implementationFactory is null)
-            {
-                throw new ArgumentNullException(nameof(implementationFactory));
-            }
-
-            AddHashiCorpCriticalExceptions(builder);
-
-            return builder.AddProvider(implementationFactory, options =>
-            {
-                options.Name = name;
-                options.MutateSecretName = mutateSecretName;
-            });
-        }
-
-        private static SecretStoreBuilder AddHashiCorpVault(
-            SecretStoreBuilder builder,
-            VaultClientSettings settings,
-            string secretPath,
-            HashiCorpVaultOptions options,
-            Action<SecretProviderOptions> configureSecretProviderOptions)
+            Action<HashiCorpVaultOptions> configureOptions)
         {
             if (settings is null)
             {
@@ -397,25 +314,14 @@ namespace Arcus.Security.Providers.HashiCorp.Extensions
                 throw new ArgumentException("Requires a HashiCorp Vault server URI with HTTP port", nameof(settings));
             }
 
-            AddHashiCorpCriticalExceptions(builder);
-
-            return builder.AddProvider(serviceProvider =>
+            return builder.AddProvider((serviceProvider, options) =>
             {
                 var logger = serviceProvider.GetService<ILogger<HashiCorpSecretProvider>>();
                 var provider = new HashiCorpSecretProvider(settings, secretPath, options, logger);
-                
-                return provider;
-            }, configureSecretProviderOptions);
-        }
 
-        private static void AddHashiCorpCriticalExceptions(SecretStoreBuilder builder)
-        {
-            // Thrown when the HashiCorp Vault's authentication and/or authorization fails.
-            builder.AddCriticalException<VaultApiException>(exception =>
-            {
-                return exception.HttpStatusCode == HttpStatusCode.BadRequest
-                       || exception.HttpStatusCode == HttpStatusCode.Forbidden;
-            });
+                return provider;
+
+            }, configureOptions);
         }
     }
 }
