@@ -20,8 +20,7 @@ namespace Microsoft.Extensions.Hosting
         /// <param name="tokenCredential">The requested authentication type for connecting to the Azure Key Vault instance.</param>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/>, <paramref name="tokenCredential"/> is <c>null</c>.</exception>
         /// <exception cref="ArgumentException">Thrown when the <paramref name="vaultUri"/> is blank.</exception>
-        public static SecretStoreBuilder AddAzureKeyVault(
-            this SecretStoreBuilder builder,
+        public static SecretStoreBuilder AddAzureKeyVault(this SecretStoreBuilder builder,
             string vaultUri,
             TokenCredential tokenCredential)
         {

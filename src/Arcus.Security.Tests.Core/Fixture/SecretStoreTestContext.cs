@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Arcus.Security.Tests.Core.Assertion;
@@ -6,6 +7,9 @@ using Bogus;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
+using Xunit;
 
 namespace Arcus.Security.Tests.Core.Fixture
 {
@@ -14,20 +18,37 @@ namespace Arcus.Security.Tests.Core.Fixture
         private bool _alreadyBuild;
         private IHost _host;
         private readonly HostBuilder _builder = new();
+        private readonly ILogger _logger;
 
         private static readonly Faker Bogus = new();
 
-        public static SecretStoreTestContext Given()
+        private SecretStoreTestContext(ILogger logger)
         {
-            return new SecretStoreTestContext();
+            _logger = logger ?? NullLogger.Instance;
+            _builder.ConfigureLogging(logging =>
+            {
+                logging.SetMinimumLevel(LogLevel.Trace)
+                       .AddProvider(new DelegateLoggerProvider(logger));
+            });
+        }
+
+        private sealed class DelegateLoggerProvider(ILogger logger) : ILoggerProvider
+        {
+            public ILogger CreateLogger(string categoryName) => logger;
+            public void Dispose() { }
+        }
+
+        public static SecretStoreTestContext Given(ILogger logger)
+        {
+            return new SecretStoreTestContext(logger);
         }
 
         public static Func<string, string> WhenSecretNameMapped()
         {
             return Bogus.Random.Int(1, 4) switch
             {
-                1 => secretName => "Prefix added by mutation:" + secretName.ToUpperInvariant(),
-                2 => secretName => secretName.ToLowerInvariant() + "-suffix-added-by-mutation",
+                1 => secretName => "Prefix:" + secretName.ToUpperInvariant(),
+                2 => secretName => secretName.ToLowerInvariant() + "-suffix",
                 3 => secretName => secretName.Replace("-", "_"),
                 4 => secretName => new string(secretName.Reverse().ToArray()),
             };
@@ -43,25 +64,30 @@ namespace Arcus.Security.Tests.Core.Fixture
             _builder.ConfigureAppConfiguration(configureAppConfig);
         }
 
-        public void WhenSecretProvider(Action<SecretStoreBuilder> configureSecretStore)
+        public void WhenSecretStore(Action<SecretStoreBuilder> configureSecretStore)
         {
-            WhenSecretProvider((_, stores) => configureSecretStore(stores));
+            WhenSecretStore((_, stores) => configureSecretStore(stores));
         }
 
-        public void WhenSecretProvider(Action<IConfiguration, SecretStoreBuilder> configureSecretStore)
+        public void WhenSecretStore(Action<IConfiguration, SecretStoreBuilder> configureSecretStore)
         {
             _builder.ConfigureSecretStore((config, stores) =>
             {
                 if (Bogus.Random.Bool())
                 {
-                    stores.AddProvider(new NeverFoundSecretProvider());
+                    stores.AddProvider((_, options) => new NeverFoundSecretProvider(options), configureOptions: null);
+                }
+
+                if (Bogus.Random.Bool())
+                {
+                    stores.AddProvider((_, options) => new AlwaysFailsSecretProvider(options), configureOptions: null);
                 }
 
                 configureSecretStore(config, stores);
             });
         }
 
-        private sealed class NeverFoundSecretProvider : DefaultSecretProvider
+        private sealed class NeverFoundSecretProvider(SecretProviderOptions options) : DefaultSecretProvider(options)
         {
             protected override SecretResult GetSecret(string secretName)
             {
@@ -69,22 +95,57 @@ namespace Arcus.Security.Tests.Core.Fixture
             }
         }
 
+        private sealed class AlwaysFailsSecretProvider(SecretProviderOptions options) : DefaultSecretProvider(options)
+        {
+            protected override SecretResult GetSecret(string secretName)
+            {
+                throw new KeyNotFoundException("Sabotage, always fails secret retrieval");
+            }
+        }
+
         public TProvider ShouldContainProvider<TProvider>(string name = null) where TProvider : ISecretProvider
         {
-            return GetHost().Services
-                .GetRequiredService<ISecretStore>()
-                .GetProvider<TProvider>(name ?? typeof(TProvider).Name);
+            name ??= typeof(TProvider).Name;
+
+            var store = GetHost().Services.GetRequiredService<ISecretStore>();
+
+            Assert.NotNull(store.GetProvider(name));
+            var provider = store.GetProvider<TProvider>(name);
+            Assert.NotNull(provider);
+
+            return provider;
         }
 
-        public Task ShouldContainSecretAsync(Secret secret)
-        {
-            return ShouldContainSecretAsync(secret.Name, secret.Value);
-        }
-
-        public async Task ShouldContainSecretAsync(string secretName, string secretValue)
+        public ISecretProvider ShouldContainProvider(string name)
         {
             var store = GetHost().Services.GetRequiredService<ISecretStore>();
-            await AssertProvider.ContainsSecretAsync(store, secretName, secretValue);
+
+            ISecretProvider provider = store.GetProvider(name);
+            Assert.NotNull(provider);
+
+            return provider;
+        }
+
+        public Task ShouldContainSecretAsync(Secret secret, Action<SecretOptions> configureOptions = null)
+        {
+            return ShouldContainSecretAsync(secret.Name, secret.Value, secret.Version, configureOptions);
+        }
+
+        public Task ShouldContainSecretAsync(SecretResult secret, Action<SecretOptions> configureOptions = null)
+        {
+            return ShouldContainSecretAsync(secret.Name, secret.Value, secret.Version, configureOptions);
+        }
+
+        public async Task ShouldContainSecretAsync(string secretName, string secretValue, string secretVersion = null, Action<SecretOptions> configureOptions = null)
+        {
+            var store = GetHost().Services.GetRequiredService<ISecretStore>();
+            await AssertProvider.ContainsSecretAsync(store, secretName, secretValue, secretVersion, configureOptions);
+            await AssertProvider.DoesNotContainSecretAsync(store, $"unknown-secret-{Guid.NewGuid()}");
+        }
+
+        public async Task ShouldNotContainSecretAsync(Secret secret, params string[] errorParts)
+        {
+            await ShouldNotContainSecretAsync(secret.Name, errorParts);
         }
 
         public async Task ShouldNotContainSecretAsync(string secretName, params string[] errorParts)

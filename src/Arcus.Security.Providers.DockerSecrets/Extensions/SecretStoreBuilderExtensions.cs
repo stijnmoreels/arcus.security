@@ -37,16 +37,6 @@ namespace Microsoft.Extensions.Hosting
             string directoryPath,
             Action<SecretProviderOptions> configureOptions)
         {
-            if (builder is null)
-            {
-                throw new ArgumentNullException(nameof(builder));
-            }
-
-            if (string.IsNullOrWhiteSpace(directoryPath))
-            {
-                throw new ArgumentException("Requires a non-blank directory path inside the Docker container to locate the secrets", nameof(directoryPath));
-            }
-
             if (!Path.IsPathRooted(directoryPath))
             {
                 throw new ArgumentException("Requires an absolute directory path inside the Docker container to located the secrets", nameof(directoryPath));
@@ -57,7 +47,7 @@ namespace Microsoft.Extensions.Hosting
                 throw new DirectoryNotFoundException($"The directory {directoryPath} which is configured as secretsDirectoryPath does not exist.");
             }
 
-            return builder.AddProvider((_, options) => new DockerSecretsSecretProvider(directoryPath, options), configureOptions);
+            return builder.AddProvider((_, options) => DockerSecretsSecretProvider.Create(directoryPath, options), configureOptions);
         }
     }
 }

@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using Bogus;
 using Xunit;
 
@@ -11,7 +12,7 @@ namespace Arcus.Security.Tests.Core.Assertion
         /// <summary>
         /// Initializes a new instance of the <see cref="Secret"/> class.
         /// </summary>
-        public Secret(string name, string value, string version)
+        public Secret(string name, string value, string version = null)
         {
             Name = name;
             Value = value;
@@ -32,12 +33,13 @@ namespace Arcus.Security.Tests.Core.Assertion
         public string Value { get; internal set; }
         public string Version { get; internal set; }
 
-        public static Secret Generate()
+        public static Secret Generate(
+            Func<string, string> mapSecretName = null)
         {
+            string secretName = $"name-{Bogus.Random.Guid()}";
             return new Secret(
-                $"name-{Bogus.Random.Guid()}",
-                $"value-{Bogus.Random.Guid()}",
-                Bogus.System.Version().ToString().OrNull(Bogus));
+                mapSecretName is null ? secretName : mapSecretName(secretName),
+                $"value-{Bogus.Random.Guid()}");
         }
 
         public static implicit operator KeyValuePair<string, string>(Secret secret)
@@ -50,13 +52,13 @@ namespace Arcus.Security.Tests.Core.Assertion
     {
         public static Secret Success(SecretResult result)
         {
-            Assert.True(result.IsSuccess, $"secret result should represent a successful operation, but wasn't: {result}");
+            Assert.True(result.IsSuccess, $"secret result should represent a successful operation, but wasn't: {Environment.NewLine}{result}");
             return new Secret(result);
         }
 
         public static void Failure(SecretResult result, params string[] errorParts)
         {
-            Assert.False(result.IsSuccess, $"secret result should represent a failed operation, but wasn't: {result}");
+            Assert.False(result.IsSuccess, $"secret result should represent a failed operation, but wasn't: {Environment.NewLine}{result}");
             Assert.All(errorParts, part => Assert.Contains(part, result.FailureMessage));
         }
     }

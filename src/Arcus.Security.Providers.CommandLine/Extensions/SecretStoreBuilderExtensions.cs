@@ -31,15 +31,8 @@ namespace Microsoft.Extensions.Hosting
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> or <paramref name="arguments"/> is <c>null</c>.</exception>
         public static SecretStoreBuilder AddCommandLine(this SecretStoreBuilder builder, string[] arguments, Action<SecretProviderOptions> configureOptions)
         {
-            if (builder is null)
-            {
-                throw new ArgumentNullException(nameof(builder));
-            }
-
-            if (arguments is null)
-            {
-                throw new ArgumentNullException(nameof(arguments));
-            }
+            ArgumentNullException.ThrowIfNull(builder);
+            ArgumentNullException.ThrowIfNull(arguments);
 
             return builder.AddProvider((_, options) =>
             {
@@ -47,6 +40,7 @@ namespace Microsoft.Extensions.Hosting
                 configProvider.Load();
 
                 return new CommandLineSecretProvider(configProvider, options);
+
             }, configureOptions);
         }
     }

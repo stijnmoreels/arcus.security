@@ -15,7 +15,7 @@ namespace Arcus.Security.Tests.Unit.Core
             var options = new SecretProviderOptions(GetType());
 
             // Act / Assert
-            Assert.ThrowsAny<ArgumentException>(() => options.Name = name);
+            Assert.ThrowsAny<ArgumentException>(() => options.ProviderName = name);
         }
     }
 }

@@ -7,12 +7,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Remove="KeyVault\Authentication\**" />
-    <Compile Remove="KeyVault\Extensions\**" />
-    <EmbeddedResource Remove="KeyVault\Authentication\**" />
-    <EmbeddedResource Remove="KeyVault\Extensions\**" />
-    <None Remove="KeyVault\Authentication\**" />
-    <None Remove="KeyVault\Extensions\**" />
+    <Compile Remove="KeyVault\**" />
+    <EmbeddedResource Remove="KeyVault\**" />
+    <None Remove="KeyVault\**" />
   </ItemGroup>
 
   <ItemGroup>
@@ -42,12 +39,6 @@
     <ProjectReference Include="..\Arcus.Security.Providers.HashiCorp\Arcus.Security.Providers.HashiCorp.csproj" />
     <ProjectReference Include="..\Arcus.Security.Providers.UserSecrets\Arcus.Security.Providers.UserSecrets.csproj" />
     <ProjectReference Include="..\Arcus.Security.Tests.Core\Arcus.Security.Tests.Core.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <Folder Include="Core\Stubs\" />
-    <Folder Include="KeyVault\Configuration\" />
-    <Folder Include="KeyVault\Doubles\" />
   </ItemGroup>
 
 </Project>

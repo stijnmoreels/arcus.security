@@ -62,7 +62,10 @@ namespace Arcus.Security.Tests.Unit.Core.Stubs
 
         public void VerifyContainsSecret(Secret secret, Action<SecretOptions> configureOptions = null)
         {
-            Secret syncSecret = AssertResult.Success(GetSecret(secret.Name, configureOptions));
+            var options = new SecretOptions();
+            configureOptions?.Invoke(options);
+
+            Secret syncSecret = AssertResult.Success(GetSecret(secret.Name, options));
             Assert.Equal(secret.Value, syncSecret.Value);
         }
     }

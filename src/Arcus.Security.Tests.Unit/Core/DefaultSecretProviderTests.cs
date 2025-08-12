@@ -4,15 +4,27 @@ using System.Threading.Tasks;
 using Arcus.Security.Tests.Core.Assertion;
 using Arcus.Security.Tests.Core.Fixture;
 using Arcus.Security.Tests.Unit.Core.Stubs;
+using Arcus.Testing;
 using Bogus;
+using Microsoft.Extensions.Logging;
 using Xunit;
+using Xunit.Abstractions;
 using static Arcus.Security.Tests.Core.Fixture.SecretStoreTestContext;
 
 namespace Arcus.Security.Tests.Unit.Core
 {
     public class DefaultSecretProviderTests
     {
+        private readonly ILogger _logger;
         private static readonly Faker Bogus = new();
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="DefaultSecretProviderTests"/> class.
+        /// </summary>
+        public DefaultSecretProviderTests(ITestOutputHelper outputWriter)
+        {
+            _logger = new XunitTestLogger(outputWriter);
+        }
 
         private Dictionary<string, string> Secrets { get; } = GenerateSecrets();
 
@@ -31,37 +43,49 @@ namespace Arcus.Security.Tests.Unit.Core
         }
 
         [Fact]
-        public void GetSecret_WithCachingConfigured_GetsCachedSecret()
+        public async Task GetSecret_WithCachingConfigured_GetsCachedSecretViaProvider()
         {
+            // Arrange
+            using var secretStore = GivenSecretStore();
+
             // Act
-            var provider = InMemorySecretProvider.Create(Secrets, options =>
+            secretStore.WhenSecretStore(store =>
             {
-                options.UseCaching(Bogus.Date.Timespan());
+                store.AddInMemory(Secrets);
+                store.UseCaching(Bogus.Date.Timespan());
             });
 
             // Assert
+            var provider = secretStore.ShouldContainProvider<InMemorySecretProvider>();
+
             Secret oldSecret = provider.GetAnySecret();
-            provider.VerifyContainsSecret(oldSecret);
+            await secretStore.ShouldContainSecretAsync(oldSecret);
 
             provider.RegenerateSecret(oldSecret);
-            provider.VerifyContainsSecret(oldSecret);
+            await secretStore.ShouldContainSecretAsync(oldSecret);
         }
 
         [Fact]
-        public void GetSecretWithIgnoreCache_WithCachingConfigured_GetsFreshSecret()
+        public async Task GetSecretWithIgnoreCache_WithCachingConfigured_GetsFreshSecretViaProvider()
         {
+            // Arrange
+            using var secretStore = GivenSecretStore();
+
             // Act
-            var provider = InMemorySecretProvider.Create(Secrets, options =>
+            secretStore.WhenSecretStore(store =>
             {
-                options.UseCaching(Bogus.Date.Timespan());
+                store.UseCaching(Bogus.Date.Timespan());
+                store.AddInMemory(Secrets);
             });
 
             // Assert
+            var provider = secretStore.ShouldContainProvider<InMemorySecretProvider>();
+
             Secret oldSecret = provider.GetAnySecret();
-            provider.VerifyContainsSecret(oldSecret, opt => opt.UseCache = true);
+            await secretStore.ShouldContainSecretAsync(oldSecret, opt => opt.UseCache = false);
 
             Secret freshSecret = provider.RegenerateSecret(oldSecret);
-            provider.VerifyContainsSecret(freshSecret, opt => opt.UseCache = false);
+            await secretStore.ShouldContainSecretAsync(freshSecret, opt => opt.UseCache = false);
         }
 
         [Fact]
@@ -73,7 +97,7 @@ namespace Arcus.Security.Tests.Unit.Core
             var mapper = WhenSecretNameMapped();
 
             // Act
-            secretStore.WhenSecretProvider(store =>
+            secretStore.WhenSecretStore(store =>
             {
                 store.AddInMemory(Secrets, options =>
                 {
@@ -83,9 +107,11 @@ namespace Arcus.Security.Tests.Unit.Core
 
             // Assert
             var provider = secretStore.ShouldContainProvider<InMemorySecretProvider>();
-            Secret anySecret = provider.GetAnySecret();
 
-            await secretStore.ShouldContainSecretAsync(mapper(anySecret.Name), anySecret.Value);
+            var secret = Secret.Generate();
+            provider.Secrets[mapper(secret.Name)] = secret.Value;
+
+            await secretStore.ShouldContainSecretAsync(secret.Name, secret.Value);
         }
 
         [Fact]
@@ -97,11 +123,11 @@ namespace Arcus.Security.Tests.Unit.Core
             string providerName = Bogus.Lorem.Sentence();
 
             // Act
-            secretStore.WhenSecretProvider(store =>
+            secretStore.WhenSecretStore(store =>
             {
                 store.AddInMemory(Secrets, options =>
                 {
-                    options.Name = providerName;
+                    options.ProviderName = providerName;
                 });
             });
 
@@ -115,9 +141,9 @@ namespace Arcus.Security.Tests.Unit.Core
                         .ToDictionary();
         }
 
-        private static SecretStoreTestContext GivenSecretStore()
+        private SecretStoreTestContext GivenSecretStore()
         {
-            return Given();
+            return Given(_logger);
         }
     }
 }

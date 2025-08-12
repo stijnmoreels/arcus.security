@@ -1,11 +1,8 @@
 ﻿using System;
-using System.IO;
 using System.Reflection;
 using Arcus.Security;
 using Arcus.Security.Providers.UserSecrets;
-using Microsoft.Extensions.Configuration.Json;
 using Microsoft.Extensions.Configuration.UserSecrets;
-using Microsoft.Extensions.FileProviders;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.Hosting
@@ -15,8 +12,6 @@ namespace Microsoft.Extensions.Hosting
     /// </summary>
     public static class SecretStoreBuilderExtensions
     {
-        private const string SecretsFileName = "secrets.json";
-
         /// <summary>
         /// <para>Adds the user secrets secret source with specified user secrets ID.</para>
         /// <para>A user secrets ID is unique value used to store and identify a collection of secrets.</para>
@@ -39,9 +34,8 @@ namespace Microsoft.Extensions.Hosting
         /// <param name="configureOptions">The additional options to configure the secret provider.</param>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> is <c>null</c>.</exception>
         /// <exception cref="InvalidOperationException">Thrown when the assembly containing <typeparamref name="T"/> does not have <see cref="UserSecretsIdAttribute"/>.</exception>
-        public static SecretStoreBuilder AddUserSecrets<T>(
-            this SecretStoreBuilder builder,
-            Action<SecretProviderOptions> configureOptions) where T : class
+        public static SecretStoreBuilder AddUserSecrets<T>(this SecretStoreBuilder builder, Action<SecretProviderOptions> configureOptions)
+            where T : class
         {
             Assembly assembly = typeof(T).GetTypeInfo().Assembly;
             return AddUserSecrets(builder, assembly, configureOptions);
@@ -56,9 +50,7 @@ namespace Microsoft.Extensions.Hosting
         /// <param name="assembly">The assembly with the <see cref="UserSecretsIdAttribute" />.</param>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> or <paramref name="assembly"/> is <c>null</c>.</exception>
         /// <exception cref="InvalidOperationException">Thrown when <paramref name="assembly"/> does not have a valid <see cref="UserSecretsIdAttribute"/>.</exception>
-        public static SecretStoreBuilder AddUserSecrets(
-            this SecretStoreBuilder builder,
-            Assembly assembly)
+        public static SecretStoreBuilder AddUserSecrets(this SecretStoreBuilder builder, Assembly assembly)
         {
             return AddUserSecrets(builder, assembly, configureOptions: null);
         }
@@ -73,12 +65,20 @@ namespace Microsoft.Extensions.Hosting
         /// <param name="configureOptions">The additional options to configure the secret provider.</param>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> or <paramref name="assembly"/> is <c>null</c>.</exception>
         /// <exception cref="InvalidOperationException">Thrown when <paramref name="assembly"/> does not have a valid <see cref="UserSecretsIdAttribute"/>.</exception>
-        public static SecretStoreBuilder AddUserSecrets(
-            this SecretStoreBuilder builder,
-            Assembly assembly,
-            Action<SecretProviderOptions> configureOptions)
+        public static SecretStoreBuilder AddUserSecrets(this SecretStoreBuilder builder, Assembly assembly, Action<SecretProviderOptions> configureOptions)
         {
-            string userSecretsId = GetUserSecretsIdFromTypeAssembly(assembly);
+            ArgumentNullException.ThrowIfNull(assembly);
+
+            var attribute = assembly.GetCustomAttribute<UserSecretsIdAttribute>();
+            if (attribute is null)
+            {
+                string assemblyName = assembly.GetName().Name;
+                throw new InvalidOperationException(
+                    $"Could not find '{nameof(UserSecretsIdAttribute)}' on assembly '{assemblyName}'. "
+                    + $"Check that the project for '{assemblyName}' has set the 'UserSecretsId' build property.");
+            }
+
+            string userSecretsId = attribute.UserSecretsId;
             return AddUserSecrets(builder, userSecretsId, configureOptions);
         }
 
@@ -90,9 +90,7 @@ namespace Microsoft.Extensions.Hosting
         /// <param name="userSecretsId">The user secrets ID.</param>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> is <c>null</c>.</exception>
         /// <exception cref="ArgumentException">Thrown when the <paramref name="userSecretsId"/> is blank.</exception>
-        public static SecretStoreBuilder AddUserSecrets(
-            this SecretStoreBuilder builder,
-            string userSecretsId)
+        public static SecretStoreBuilder AddUserSecrets(this SecretStoreBuilder builder, string userSecretsId)
         {
             return AddUserSecrets(builder, userSecretsId, configureOptions: null);
         }
@@ -106,81 +104,11 @@ namespace Microsoft.Extensions.Hosting
         /// <param name="configureOptions">The optional options to configure the secret provider.</param>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> is <c>null</c>.</exception>
         /// <exception cref="ArgumentException">Thrown when the <paramref name="userSecretsId"/> is blank.</exception>
-        public static SecretStoreBuilder AddUserSecrets(
-            this SecretStoreBuilder builder,
-            string userSecretsId,
-            Action<SecretProviderOptions> configureOptions)
+        public static SecretStoreBuilder AddUserSecrets(this SecretStoreBuilder builder, string userSecretsId, Action<SecretProviderOptions> configureOptions)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(userSecretsId);
 
-            return builder.AddProvider((_, options) =>
-            {
-                string directoryPath = GetUserSecretsDirectoryPath(userSecretsId);
-                JsonConfigurationSource source = CreateJsonFileSource(directoryPath);
-
-                var provider = new JsonConfigurationProvider(source);
-                provider.Load();
-
-                return new UserSecretsSecretProvider(provider, options);
-
-            }, configureOptions);
-
-        }
-
-        private static string GetUserSecretsIdFromTypeAssembly(Assembly assembly)
-        {
-            if (assembly is null)
-            {
-                throw new ArgumentNullException(nameof(assembly));
-            }
-
-            var attribute = assembly.GetCustomAttribute<UserSecretsIdAttribute>();
-            if (attribute is null)
-            {
-                string assemblyName = assembly.GetName().Name;
-                throw new InvalidOperationException(
-                    $"Could not find '{nameof(UserSecretsIdAttribute)}' on assembly '{assemblyName}'. "
-                    + $"Check that the project for '{assemblyName}' has set the 'UserSecretsId' build property.");
-            }
-
-            return attribute.UserSecretsId;
-        }
-
-        private static string GetUserSecretsDirectoryPath(string usersSecretsId)
-        {
-            if (string.IsNullOrWhiteSpace(usersSecretsId))
-            {
-                throw new ArgumentException("Requires a non-blank user secret ID to determine the local path of the users secrets", nameof(usersSecretsId));
-            }
-
-            string secretPath = PathHelper.GetSecretsPathFromSecretsId(usersSecretsId);
-            string directoryPath = Path.GetDirectoryName(secretPath);
-
-            return directoryPath;
-        }
-
-        private static JsonConfigurationSource CreateJsonFileSource(string directoryPath)
-        {
-            IFileProvider fileProvider = null;
-            if (Directory.Exists(directoryPath))
-            {
-                fileProvider = new PhysicalFileProvider(directoryPath);
-            }
-
-            var source = new JsonConfigurationSource
-            {
-                FileProvider = fileProvider,
-                Path = SecretsFileName,
-                Optional = false
-            };
-
-            source.ResolveFileProvider();
-            if (source.FileProvider == null)
-            {
-                source.FileProvider = new PhysicalFileProvider(AppContext.BaseDirectory ?? String.Empty);
-            }
-
-            return source;
+            return builder.AddProvider((_, options) => UserSecretsSecretProvider.Create(userSecretsId, options), configureOptions);
         }
     }
 }

@@ -38,8 +38,6 @@ namespace Arcus.Security.Core.Providers
         /// </summary>
         public EnvironmentVariableSecretProvider(EnvironmentVariableSecretProviderOptions options) : base(options)
         {
-            ArgumentNullException.ThrowIfNull(options);
-
             _target = options.Target;
             _prefix = options.Prefix;
         }

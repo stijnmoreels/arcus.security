@@ -27,11 +27,7 @@ namespace Arcus.Security.Providers.HashiCorp.Configuration
             get => _keyValueMountPoint;
             set
             {
-                if (string.IsNullOrWhiteSpace(value))
-                {
-                    throw new ArgumentException("Requires a non-blank point where the KeyVault secret engine is mounted", nameof(value));
-                }
-
+                ArgumentException.ThrowIfNullOrWhiteSpace(value);
                 _keyValueMountPoint = value;
             }
         }
@@ -53,10 +49,5 @@ namespace Arcus.Security.Providers.HashiCorp.Configuration
                 _engineVersion = value;
             }
         }
-
-        /// <summary>
-        /// Gets or sets the flag indicating whether or not to track the HashiCorp Vault dependency.
-        /// </summary>
-        public bool TrackDependency { get; set; }
     }
 }

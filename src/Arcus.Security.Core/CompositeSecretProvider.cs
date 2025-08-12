@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -13,6 +14,7 @@ namespace Arcus.Security.Core
     /// </summary>
     internal class CompositeSecretProvider : ISecretStore
     {
+        private readonly SecretStoreOptions _options;
         private readonly IReadOnlyCollection<SecretProviderRegistration> _secretProviders;
         private readonly Dictionary<string, Lazy<ISecretProvider>> _secretProvidersByName;
         private readonly ILogger _logger;
@@ -21,18 +23,22 @@ namespace Arcus.Security.Core
         /// Initializes a new instance of the <see cref="CompositeSecretProvider"/> class.
         /// </summary>
         /// <param name="secretProviderRegistrations">The sequence of all available registered secret provider registrations.</param>
+        /// <param name="options"></param>
         /// <param name="logger">The logger instance to write diagnostic messages during the retrieval of secrets via the registered <paramref name="secretProviderRegistrations"/>.</param>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="secretProviderRegistrations"/> is <c>null</c>.</exception>
         /// <exception cref="ArgumentException">Thrown when the <paramref name="secretProviderRegistrations"/> contains any <c>null</c> values.</exception>
         internal CompositeSecretProvider(
             IReadOnlyCollection<SecretProviderRegistration> secretProviderRegistrations,
+            SecretStoreOptions options,
             ILogger logger)
         {
             ArgumentNullException.ThrowIfNull(secretProviderRegistrations);
+            ArgumentNullException.ThrowIfNull(options);
 
             var registrations = secretProviderRegistrations.Where(r => r != null).ToArray();
 
             _secretProviders = registrations;
+            _options = options;
             _logger = logger ?? NullLogger<CompositeSecretProvider>.Instance;
 
             _secretProvidersByName = CreateGroupedSecretProviders(registrations, logger);
@@ -44,7 +50,7 @@ namespace Arcus.Security.Core
         /// <typeparam name="TProvider">The concrete type of the secret provider implementation.</typeparam>
         /// <param name="providerName">
         ///     The name of the concrete secret provider implementation;
-        ///     uses the FQN (fully-qualified name) of the type in case none is provided.
+        ///     uses the type name in case none is provided.
         /// </param>
         /// <exception cref="ArgumentException">Thrown when the <paramref name="providerName"/> is blank.</exception>
         public TProvider GetProvider<TProvider>(string providerName) where TProvider : ISecretProvider
@@ -76,56 +82,68 @@ namespace Arcus.Security.Core
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName"></param>
-        /// <param name="configureOptions"></param>
+        /// <param name="options"></param>
         /// <returns></returns>
-        public SecretResult GetSecret(string secretName, Action<SecretOptions> configureOptions)
+        public SecretResult GetSecret(string secretName, SecretOptions options)
         {
-            return GetSecretCoreAsync(secretName, secretProvider =>
+            return GetSecretCoreAsync(secretName, (provider, name) =>
             {
-                return Task.FromResult(secretProvider.GetSecret(secretName, configureOptions));
+                return Task.FromResult(provider.GetSecret(name, options));
 
-            }).Result;
+            }, options).Result;
         }
 
         /// <summary>
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName">The </param>
-        /// <param name="configureOptions"></param>
-        public Task<SecretResult> GetSecretAsync(string secretName, Action<SecretOptions> configureOptions)
+        /// <param name="options"></param>
+        public Task<SecretResult> GetSecretAsync(string secretName, SecretOptions options)
         {
-            return GetSecretCoreAsync(secretName, secretProvider => secretProvider.GetSecretAsync(secretName, configureOptions));
+            return GetSecretCoreAsync(secretName, (provider, name) => provider.GetSecretAsync(name, options), options);
         }
 
         private async Task<SecretResult> GetSecretCoreAsync(
             string secretName,
-            Func<ISecretProvider, Task<SecretResult>> getSecretAsync)
+            Func<ISecretProvider, string, Task<SecretResult>> getSecretAsync,
+            SecretOptions options)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(secretName);
+            options ??= new SecretOptions();
 
-            var failures = new Collection<SecretResult>();
+            var failures = new Collection<(string providerName, SecretResult)>();
             foreach (SecretProviderRegistration source in _secretProviders)
             {
+                string providerName = source.Options.ProviderName;
                 try
                 {
-                    SecretResult result = await getSecretAsync(source.SecretProvider);
+                    var mapped = source.Options.SecretNameMapper(secretName);
+                    if (_options.TryGetCachedSecret(secretName, options, out SecretResult cached))
+                    {
+                        return cached;
+                    }
+
+                    SecretResult result = await getSecretAsync(source.SecretProvider, mapped);
                     if (result is null)
                     {
-                        _logger.LogTrace("Secret provider '{SecretProviderName}' doesn't contain secret with name {SecretName} as it returned 'null'", source.Options.Name, secretName);
+                        _logger.LogWarning("Secret store could not found secret '{SecretName}' in secret provider '{ProviderName}' as it returned 'null' upon querying provider", secretName, providerName);
                         continue;
                     }
 
                     if (result.IsSuccess)
                     {
+                        _logger.LogDebug("Secret store found secret '{SecretName}' in secret provider '{ProviderName}'", secretName, providerName);
+                        _options.UpdateSecretInCache(secretName, result, options);
                         return result;
                     }
 
-                    failures.Add(result);
+                    _logger.LogDebug("Secret store could not found secret '{SecretName}' in secret provider '{ProviderName}'", secretName, providerName);
+                    failures.Add((providerName, result));
                 }
                 catch (Exception exception)
                 {
-                    failures.Add(SecretResult.Failure($"Secret provider '{source.Options.Name}' failed to find secret '{secretName}' due to an unexpected failure", exception));
-                    _logger.LogTrace(exception, "Secret provider '{SecretProviderName}' doesn't contain secret with name {SecretName}", source.Options.Name, secretName);
+                    failures.Add((providerName, SecretResult.Failure($"Secret provider '{providerName}' failed to find secret '{secretName}' due to an unexpected failure", exception)));
+                    _logger.LogWarning(exception, "Secret store could not found secret '{SecretName}' in secret provider '{ProviderName}' due to an exception while querying for the secret", secretName, providerName);
                 }
             }
 
@@ -133,31 +151,34 @@ namespace Arcus.Security.Core
             return noneFoundFailure;
         }
 
-        private static SecretResult CreateSecretResultNoneFoundFailure(string secretName, Collection<SecretResult> failures)
+        private SecretResult CreateSecretResultNoneFoundFailure(string secretName, Collection<(string providerName, SecretResult result)> failures)
         {
             string messages = failures.Count == 0
                 ? "No secret providers were registered in the secret store"
-                : string.Concat(failures.Select(failure => $"{Environment.NewLine}- {failure.FailureMessage}"));
+                : string.Concat(failures.Select(failure => $"{Environment.NewLine}\t- ({failure.providerName}): {failure.result.FailureMessage}"));
 
             var failureMessage = $"No registered secret provider could found secret '{secretName}': {messages}";
-            var failureCauses = failures.Where(f => f.FailureCause != null).Select(f => f.FailureCause).ToArray();
+            var failureCauses = failures.Where(f => f.result.FailureCause != null).Select(f => f.result.FailureCause).ToArray();
 
             if (failureCauses.Length <= 0)
             {
                 return SecretResult.Failure(failureMessage);
             }
 
-            return failureCauses.Length == 1
-                ? SecretResult.Failure(failureMessage, failureCauses[0])
-                : SecretResult.Failure(failureMessage, new AggregateException(failureCauses));
+            var failureCause = failureCauses.Length == 1
+                ? failureCauses[0]
+                : new AggregateException(failureCauses);
+
+            _logger.LogError(failureCause, failureMessage);
+            return SecretResult.Failure(failureMessage, failureCause);
         }
 
-        private static Dictionary<string, Lazy<ISecretProvider>> CreateGroupedSecretProviders(
+        private Dictionary<string, Lazy<ISecretProvider>> CreateGroupedSecretProviders(
             IEnumerable<SecretProviderRegistration> secretProvidersRegistrations,
             ILogger logger)
         {
             return secretProvidersRegistrations
-                   .GroupBy(r => r.Options.Name)
+                   .GroupBy(r => r.Options.ProviderName)
                    .ToDictionary(group => group.Key, group =>
                    {
                        return new Lazy<ISecretProvider>(() =>
@@ -168,7 +189,7 @@ namespace Arcus.Security.Core
                                return provider.SecretProvider;
                            }
 
-                           return new CompositeSecretProvider(group.ToArray(), logger);
+                           return new CompositeSecretProvider(group.ToArray(), _options, logger);
                        });
                    });
         }

@@ -21,10 +21,7 @@ namespace Arcus.Security.Providers.AzureKeyVault
         /// <summary>
         /// Initializes a new instance of the <see cref="KeyVaultSecretProvider"/> class.
         /// </summary>
-        internal KeyVaultSecretProvider(
-            SecretClient client,
-            SecretProviderOptions options)
-            : base(options)
+        internal KeyVaultSecretProvider(SecretClient client, SecretProviderOptions options) : base(options)
         {
             _secretClient = client;
         }
@@ -99,9 +96,9 @@ namespace Arcus.Security.Providers.AzureKeyVault
             return SecretsResult.Create(results);
         }
 
-        private async Task<(bool isFound, string[] versions)> DetermineVersionsAsync(string secretName)
+        private Task<(bool isFound, string[] versions)> DetermineVersionsAsync(string secretName)
         {
-            return await ThrottleTooManyRequestsAsync(async () =>
+            return ThrottleTooManyRequestsAsync(async () =>
             {
                 AsyncPageable<SecretProperties> properties = _secretClient.GetPropertiesOfSecretVersionsAsync(secretName);
 
@@ -124,11 +121,11 @@ namespace Arcus.Security.Providers.AzureKeyVault
             }, notFoundValue: (isFound: false, []));
         }
 
-        private static async Task<SecretResult> ThrottleTooManyRequestsAsync(
+        private static Task<SecretResult> ThrottleTooManyRequestsAsync(
             string secretName,
             Func<Task<Response<KeyVaultSecret>>> secretOperation)
         {
-            return await ThrottleTooManyRequestsAsync(async () =>
+            return ThrottleTooManyRequestsAsync(async () =>
             {
                 KeyVaultSecret response = await secretOperation();
 

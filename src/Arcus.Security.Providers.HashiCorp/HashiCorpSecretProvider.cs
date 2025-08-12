@@ -37,31 +37,11 @@ namespace Arcus.Security.Providers.HashiCorp
             string secretPath,
             HashiCorpVaultOptions options,
             ILogger<HashiCorpSecretProvider> logger)
+            : base(options)
         {
-            if (settings is null)
-            {
-                throw new ArgumentNullException(nameof(settings));
-            }
-
-            if (settings.AuthMethodInfo is null)
-            {
-                throw new ArgumentNullException(nameof(settings), "Requires a authentication method to connect to the HashiCorp Vault");
-            }
-
-            if (string.IsNullOrWhiteSpace(secretPath))
-            {
-                throw new ArgumentException("Requires a path where the HashiCorp Vault KeyValue secret engine should look for secrets", nameof(secretPath));
-            }
-
-            if (string.IsNullOrWhiteSpace(settings.VaultServerUriWithPort))
-            {
-                throw new ArgumentException("Requires a HashiCorp Vault server URI with HTTP port", nameof(settings));
-            }
-
-            if (!Uri.IsWellFormedUriString(settings.VaultServerUriWithPort, UriKind.RelativeOrAbsolute))
-            {
-                throw new ArgumentException("Requires a HashiCorp Vault server URI with HTTP port", nameof(settings));
-            }
+            ArgumentNullException.ThrowIfNull(settings);
+            ArgumentException.ThrowIfNullOrWhiteSpace(secretPath);
+            ArgumentNullException.ThrowIfNull(options);
 
             Options = options;
             SecretPath = secretPath;
@@ -89,14 +69,14 @@ namespace Arcus.Security.Providers.HashiCorp
         /// </summary>
         protected ILogger Logger { get; }
 
-
         /// <summary>
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName">The name of the secret to retrieve.</param>
         protected override SecretResult GetSecret(string secretName)
         {
-            return SecretResult.Failure("");
+            throw new NotSupportedException(
+                "HashiCorp secrets cannot be read synchronously, only asynchronous 'GetSecretAsync(...)' operations are supported");
         }
 
         /// <summary>

@@ -17,7 +17,6 @@ namespace Microsoft.Extensions.Hosting
         /// <param name="builder">The builder to create the secret store.</param>
         public static SecretStoreBuilder AddEnvironmentVariables(this SecretStoreBuilder builder)
         {
-            ArgumentNullException.ThrowIfNull(builder);
             return AddEnvironmentVariables(builder, configureOptions: null);
         }
 
@@ -27,9 +26,7 @@ namespace Microsoft.Extensions.Hosting
         /// <param name="builder">The builder to create the secret store.</param>
         /// <param name="configureOptions">The additional options to configure the secret provider.</param>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> is <c>null</c>.</exception>
-        public static SecretStoreBuilder AddEnvironmentVariables(
-            this SecretStoreBuilder builder,
-            Action<EnvironmentVariableSecretProviderOptions> configureOptions)
+        public static SecretStoreBuilder AddEnvironmentVariables(this SecretStoreBuilder builder, Action<EnvironmentVariableSecretProviderOptions> configureOptions)
         {
             ArgumentNullException.ThrowIfNull(builder);
             return builder.AddProvider((_, options) => new EnvironmentVariableSecretProvider(options), configureOptions);
@@ -42,9 +39,6 @@ namespace Microsoft.Extensions.Hosting
         /// <param name="configuration">The configuration of the application, containing secrets.</param>
         public static SecretStoreBuilder AddConfiguration(this SecretStoreBuilder builder, IConfiguration configuration)
         {
-            ArgumentNullException.ThrowIfNull(builder);
-            ArgumentNullException.ThrowIfNull(configuration);
-
             return AddConfiguration(builder, configuration, configureOptions: null);
         }
 
@@ -55,10 +49,7 @@ namespace Microsoft.Extensions.Hosting
         /// <param name="configuration">The configuration of the application, containing secrets.</param>
         /// <param name="configureOptions">The additional options to configure the secret provider.</param>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="builder"/> is <c>null</c>.</exception>
-        public static SecretStoreBuilder AddConfiguration(
-            this SecretStoreBuilder builder,
-            IConfiguration configuration,
-            Action<SecretProviderOptions> configureOptions)
+        public static SecretStoreBuilder AddConfiguration(this SecretStoreBuilder builder, IConfiguration configuration, Action<SecretProviderOptions> configureOptions)
         {
             ArgumentNullException.ThrowIfNull(builder);
             ArgumentNullException.ThrowIfNull(configuration);

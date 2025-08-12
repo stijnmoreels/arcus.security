@@ -4,8 +4,7 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Caching.Memory;
-using Microsoft.Extensions.Primitives;
+using Microsoft.Extensions.Hosting;
 
 namespace Arcus.Security
 {
@@ -22,17 +21,27 @@ namespace Arcus.Security
         public bool UseCache { get; set; } = true;
     }
 
-    internal class SecretProviderRegistration
+    internal sealed class SecretProviderRegistration : IDisposable
     {
-        internal SecretProviderRegistration(ISecretProvider secretProvider, SecretProviderOptions options = null)
+        internal SecretProviderRegistration(ISecretProvider secretProvider, SecretProviderOptions options)
         {
             ArgumentNullException.ThrowIfNull(secretProvider);
+            ArgumentNullException.ThrowIfNull(options);
+
             SecretProvider = secretProvider;
-            Options = options ?? new SecretProviderOptions(secretProvider.GetType());
+            Options = options;
         }
 
         internal ISecretProvider SecretProvider { get; }
         internal SecretProviderOptions Options { get; }
+
+        public void Dispose()
+        {
+            if (SecretProvider is IDisposable disposable)
+            {
+                disposable.Dispose();
+            }
+        }
     }
 
     /// <summary>
@@ -44,19 +53,19 @@ namespace Arcus.Security
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName">The </param>
-        /// <param name="configureOptions"></param>
-        Task<SecretResult> GetSecretAsync(string secretName, Action<SecretOptions> configureOptions)
+        /// <param name="options"></param>
+        Task<SecretResult> GetSecretAsync(string secretName, SecretOptions options)
         {
-            return Task.FromResult(GetSecret(secretName, configureOptions));
+            return Task.FromResult(GetSecret(secretName, options));
         }
 
         /// <summary>
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName"></param>
-        /// <param name="configureOptions"></param>
+        /// <param name="options"></param>
         /// <returns></returns>
-        SecretResult GetSecret(string secretName, Action<SecretOptions> configureOptions);
+        SecretResult GetSecret(string secretName, SecretOptions options);
     }
 
     /// <summary>
@@ -71,9 +80,9 @@ namespace Arcus.Security
         /// <param name="secretProvider"></param>
         /// <param name="secretName"></param>
         /// <returns></returns>
-        public static async Task<SecretResult> GetSecretAsync(this ISecretProvider secretProvider, string secretName)
+        public static Task<SecretResult> GetSecretAsync(this ISecretProvider secretProvider, string secretName)
         {
-            return await secretProvider.GetSecretAsync(secretName, configureOptions: null);
+            return secretProvider.GetSecretAsync(secretName, options: null);
         }
 
         /// <summary>
@@ -84,7 +93,7 @@ namespace Arcus.Security
         /// <returns></returns>
         public static SecretResult GetSecret(this ISecretProvider secretProvider, string secretName)
         {
-            return secretProvider.GetSecret(secretName, configureOptions: null);
+            return secretProvider.GetSecret(secretName, options: null);
         }
     }
 
@@ -167,15 +176,21 @@ namespace Arcus.Security
 
         private SecretResult(string failureMessage, Exception failureCause)
         {
-            _failureMessage = failureMessage ?? throw new ArgumentNullException(nameof(failureMessage));
-            _failureCause = failureCause ?? throw new ArgumentNullException(nameof(failureCause));
+            ArgumentException.ThrowIfNullOrWhiteSpace(failureMessage);
+
+            _failureMessage = failureMessage;
+            _failureCause = failureCause;
+
             IsSuccess = false;
         }
 
         private SecretResult(string secretName, string secretValue, string secretVersion, DateTimeOffset expirationDate)
         {
-            _secretName = secretName ?? throw new ArgumentNullException(nameof(secretName));
-            _secretValue = secretValue ?? throw new ArgumentNullException(nameof(secretValue));
+            ArgumentException.ThrowIfNullOrWhiteSpace(secretName);
+            ArgumentException.ThrowIfNullOrWhiteSpace(secretValue);
+
+            _secretName = secretName;
+            _secretValue = secretValue;
             _secretVersion = secretVersion;
             _expirationDate = expirationDate;
 
@@ -313,44 +328,35 @@ namespace Arcus.Security
     {
         private readonly Collection<Func<string, string>> _secretNameMappers = [];
         private string _name;
-        private IMemoryCache _cache = new NullMemoryCache();
+        private SecretStoreOptions _secretStoreRef;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="SecretProviderOptions"/> class.
         /// </summary>
+        /// <param name="secretProviderType">The type of the <see cref="ISecretProvider"/> implementation -- used to determine the <see cref="ProviderName"/>.</param>
+        /// <exception cref="ArgumentNullException">Thrown when the <paramref name="secretProviderType"/> is <c>null</c>.</exception>
         public SecretProviderOptions(Type secretProviderType)
         {
             ArgumentNullException.ThrowIfNull(secretProviderType);
-            ArgumentException.ThrowIfNullOrWhiteSpace(secretProviderType.Name);
-
-            Name = secretProviderType.Name;
-        }
-
-        /// <summary>
-        /// Gets or sets the memory cache to use for caching secrets.
-        /// </summary>
-        internal IMemoryCache Cache
-        {
-            get => _cache;
-            set
-            {
-                ArgumentNullException.ThrowIfNull(value);
-                _cache = value;
-            }
+            ProviderName = secretProviderType.Name;
         }
 
         internal Func<string, string> SecretNameMapper => name => _secretNameMappers.Aggregate(name, (x, map) => map(x));
 
-        internal MemoryCacheEntryOptions CacheEntry { get; set; } = new();
-
-        /// <summary>
-        /// Configures the secret provider to use caching with a sliding expiration <paramref name="duration"/>.
-        /// </summary>
-        /// <param name="duration">The expiration time when the secret should be invalidated in the cache.</param>
-        public void UseCaching(TimeSpan duration)
+        internal SecretStoreOptions SecretStoreRef
         {
-            Cache = new MemoryCache(new MemoryCacheOptions());
-            CacheEntry = new MemoryCacheEntryOptions().SetSlidingExpiration(duration);
+            get
+            {
+                if (_secretStoreRef is null)
+                {
+                    throw new InvalidOperationException(
+                        "Cannot access the registered secret store, as no reference was set on the secret provider options, " +
+                        "this happens when the options are accessed at an incorrect time");
+                }
+
+                return _secretStoreRef;
+            }
+            set => _secretStoreRef = value;
         }
 
         /// <summary>
@@ -367,8 +373,11 @@ namespace Arcus.Security
         /// <summary>
         /// Gets or sets the name of the <see cref="ISecretProvider"/> to be registered in the secret store.
         /// </summary>
+        /// <remarks>
+        ///     When no name is provided by the user, it falls back on the type name of the registered <see cref="ISecretProvider"/>.
+        /// </remarks>
         /// <exception cref="ArgumentException">Thrown when the <paramref name="value"/> is blank.</exception>
-        public string Name
+        public string ProviderName
         {
             get => _name;
             set
@@ -376,32 +385,6 @@ namespace Arcus.Security
                 ArgumentException.ThrowIfNullOrWhiteSpace(value);
                 _name = value;
             }
-        }
-
-        private sealed class NullMemoryCache : IMemoryCache
-        {
-            public ICacheEntry CreateEntry(object key) => new NullCacheEntry();
-            public void Remove(object key) { }
-            public void Dispose() { }
-            public bool TryGetValue(object key, out object value)
-            {
-                value = null;
-                return false;
-            }
-        }
-
-        private sealed class NullCacheEntry : ICacheEntry
-        {
-            public object Key { get; }
-            public object Value { get; set; }
-            public DateTimeOffset? AbsoluteExpiration { get; set; }
-            public TimeSpan? AbsoluteExpirationRelativeToNow { get; set; }
-            public TimeSpan? SlidingExpiration { get; set; }
-            public IList<IChangeToken> ExpirationTokens { get; }
-            public IList<PostEvictionCallbackRegistration> PostEvictionCallbacks { get; }
-            public CacheItemPriority Priority { get; set; }
-            public long? Size { get; set; }
-            public void Dispose() { }
         }
     }
 
@@ -416,15 +399,8 @@ namespace Arcus.Security
         /// </summary>
         protected DefaultSecretProvider(SecretProviderOptions options)
         {
-            ProviderOptions = options ?? new SecretProviderOptions(GetType());
-        }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="DefaultSecretProvider"/> class.
-        /// </summary>
-        protected DefaultSecretProvider()
-        {
-            ProviderOptions = new SecretProviderOptions(GetType());
+            ArgumentNullException.ThrowIfNull(options);
+            ProviderOptions = options;
         }
 
         internal SecretProviderOptions ProviderOptions { get; }
@@ -433,15 +409,11 @@ namespace Arcus.Security
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName">The name of the secret to retrieve.</param>
-        /// <param name="configureOptions"></param>
+        /// <param name="options"></param>
         /// <returns></returns>
-        public virtual SecretResult GetSecret(string secretName, Action<SecretOptions> configureOptions)
+        public virtual SecretResult GetSecret(string secretName, SecretOptions options)
         {
-            return GetOrAddSecretToCacheAsync(secretName, configureOptions, name =>
-            {
-                return Task.FromResult(GetSecret(name));
-
-            }).Result;
+            return GetSecret(secretName);
         }
 
         /// <summary>
@@ -454,10 +426,10 @@ namespace Arcus.Security
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName">The name of the secret to retrieve.</param>
-        /// <param name="configureOptions"></param>
-        public async Task<SecretResult> GetSecretAsync(string secretName, Action<SecretOptions> configureOptions)
+        /// <param name="options"></param>
+        public Task<SecretResult> GetSecretAsync(string secretName, SecretOptions options)
         {
-            return await GetOrAddSecretToCacheAsync(secretName, configureOptions, GetSecretAsync);
+            return GetSecretAsync(secretName);
         }
 
         /// <summary>
@@ -469,52 +441,14 @@ namespace Arcus.Security
             return Task.FromResult(GetSecret(secretName));
         }
 
-        private async Task<SecretResult> GetOrAddSecretToCacheAsync(
-            string secretName,
-            Action<SecretOptions> configureOptions,
-            Func<string, Task<SecretResult>> getSecretAsync)
-        {
-            ArgumentException.ThrowIfNullOrWhiteSpace(secretName);
-
-            var options = new SecretOptions();
-            configureOptions?.Invoke(options);
-
-            secretName = ProviderOptions.SecretNameMapper(secretName);
-
-            if (TryGetCachedSecret(secretName, options, out SecretResult cachedSecret))
-            {
-                return cachedSecret;
-            }
-
-            SecretResult secret = await getSecretAsync(secretName);
-            if (options.UseCache)
-            {
-                UpdateSecretInCache(secretName, secret);
-            }
-
-            return secret;
-        }
-
-        private bool TryGetCachedSecret(string secretName, SecretOptions secretOptions, out SecretResult secret)
-        {
-            if (secretOptions.UseCache)
-            {
-                return ProviderOptions.Cache.TryGetValue(secretName, out secret);
-            }
-
-            secret = null;
-            return false;
-        }
-
         /// <summary>
-        /// Updates the secret in the cache with the given secret name and value.
+        /// 
         /// </summary>
-        protected void UpdateSecretInCache(string secretName, SecretResult secret)
+        /// <param name="secretName"></param>
+        /// <param name="result"></param>
+        protected void UpdateSecretInCache(string secretName, SecretResult result)
         {
-            if (secret.IsSuccess)
-            {
-                ProviderOptions.Cache.Set(secretName, secret, ProviderOptions.CacheEntry);
-            }
+            ProviderOptions.SecretStoreRef.UpdateSecretInCache(secretName, result);
         }
     }
 }

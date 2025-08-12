@@ -8,7 +8,7 @@ namespace Arcus.Security.Providers.DockerSecrets
     /// <summary>
     /// Represents an <see cref="ISecretProvider" /> that provides access to the Docker secrets mounted into the Docker container as files.
     /// </summary>
-    public class DockerSecretsSecretProvider : DefaultSecretProvider
+    public sealed class DockerSecretsSecretProvider : DefaultSecretProvider, IDisposable
     {
         private readonly string _secretsDirectoryPath;
         private readonly KeyPerFileConfigurationProvider _provider;
@@ -17,26 +17,23 @@ namespace Arcus.Security.Providers.DockerSecrets
         /// Initializes a new instance of the <see cref="DockerSecretsSecretProvider"/> class.
         /// </summary>
         /// <param name="secretsDirectoryPath">The directory path inside the Docker container where the secrets are located.</param>
+        /// <param name="provider"></param>
         /// <param name="options"></param>
         /// <exception cref="ArgumentException">Thrown when the <paramref name="secretsDirectoryPath"/> is blank or not an absolute path.</exception>
         /// <exception cref="DirectoryNotFoundException">Thrown when the <paramref name="secretsDirectoryPath"/> is not found on the system.</exception>
-        internal DockerSecretsSecretProvider(string secretsDirectoryPath, SecretProviderOptions options) : base(options)
+        private DockerSecretsSecretProvider(string secretsDirectoryPath, KeyPerFileConfigurationProvider provider, SecretProviderOptions options) : base(options)
         {
-            if (string.IsNullOrWhiteSpace(secretsDirectoryPath))
-            {
-                throw new ArgumentException("Requires a directory path inside the Docker container where the secrets are located", nameof(secretsDirectoryPath));
-            }
+            ArgumentException.ThrowIfNullOrWhiteSpace(secretsDirectoryPath);
+            ArgumentNullException.ThrowIfNull(provider);
 
+            _secretsDirectoryPath = secretsDirectoryPath;
+            _provider = provider;
+        }
 
-            if (!Path.IsPathRooted(secretsDirectoryPath))
-            {
-                throw new ArgumentException("Requires an absolute directory path inside the Docker container to located the secrets", nameof(secretsDirectoryPath));
-            }
-
-            if (!Directory.Exists(secretsDirectoryPath))
-            {
-                throw new DirectoryNotFoundException($"The directory {secretsDirectoryPath} which is configured as secretsDirectoryPath does not exist.");
-            }
+        internal static DockerSecretsSecretProvider Create(string secretsDirectoryPath, SecretProviderOptions options)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(secretsDirectoryPath);
+            ArgumentNullException.ThrowIfNull(options);
 
             var configuration = new KeyPerFileConfigurationSource
             {
@@ -47,8 +44,7 @@ namespace Arcus.Security.Providers.DockerSecrets
             var provider = new KeyPerFileConfigurationProvider(configuration);
             provider.Load();
 
-            _secretsDirectoryPath = secretsDirectoryPath;
-            _provider = provider;
+            return new DockerSecretsSecretProvider(secretsDirectoryPath, provider, options);
         }
 
         /// <summary>
@@ -60,6 +56,14 @@ namespace Arcus.Security.Providers.DockerSecrets
             return _provider.TryGet(secretName, out string secretValue)
                 ? SecretResult.Success(secretName, secretValue)
                 : SecretResult.Failure($"No '{secretName}' secret found in Docker secrets at '{_secretsDirectoryPath}'");
+        }
+
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
+        public void Dispose()
+        {
+            _provider?.Dispose();
         }
     }
 }

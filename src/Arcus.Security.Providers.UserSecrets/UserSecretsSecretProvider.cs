@@ -1,13 +1,18 @@
 ﻿using System;
+using System.IO;
 using Microsoft.Extensions.Configuration.Json;
+using Microsoft.Extensions.Configuration.UserSecrets;
+using Microsoft.Extensions.FileProviders;
 
 namespace Arcus.Security.Providers.UserSecrets
 {
     /// <summary>
     /// <see cref="ISecretProvider"/> implementation that provides user secrets.
     /// </summary>
-    public class UserSecretsSecretProvider : DefaultSecretProvider
+    public sealed class UserSecretsSecretProvider : DefaultSecretProvider, IDisposable
     {
+        private const string SecretsFileName = "secrets.json";
+
         private readonly JsonConfigurationProvider _jsonProvider;
 
         /// <summary>
@@ -15,7 +20,50 @@ namespace Arcus.Security.Providers.UserSecrets
         /// </summary>
         internal UserSecretsSecretProvider(JsonConfigurationProvider jsonProvider, SecretProviderOptions options) : base(options)
         {
-            _jsonProvider = jsonProvider ?? throw new ArgumentNullException(nameof(jsonProvider));
+            ArgumentNullException.ThrowIfNull(jsonProvider);
+            _jsonProvider = jsonProvider;
+        }
+
+        internal static UserSecretsSecretProvider Create(string userSecretsId, SecretProviderOptions options)
+        {
+            string directoryPath = GetUserSecretsDirectoryPath(userSecretsId);
+            JsonConfigurationSource source = CreateJsonFileSource(directoryPath);
+
+            var provider = new JsonConfigurationProvider(source);
+            provider.Load();
+
+            return new UserSecretsSecretProvider(provider, options);
+        }
+
+        private static string GetUserSecretsDirectoryPath(string usersSecretsId)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(usersSecretsId);
+
+            string secretPath = PathHelper.GetSecretsPathFromSecretsId(usersSecretsId);
+            string directoryPath = Path.GetDirectoryName(secretPath);
+
+            return directoryPath;
+        }
+
+        private static JsonConfigurationSource CreateJsonFileSource(string directoryPath)
+        {
+            IFileProvider fileProvider = null;
+            if (Directory.Exists(directoryPath))
+            {
+                fileProvider = new PhysicalFileProvider(directoryPath);
+            }
+
+            var source = new JsonConfigurationSource
+            {
+                FileProvider = fileProvider,
+                Path = SecretsFileName,
+                Optional = false
+            };
+
+            source.ResolveFileProvider();
+            source.FileProvider ??= new PhysicalFileProvider(AppContext.BaseDirectory);
+
+            return source;
         }
 
         /// <summary>
@@ -24,11 +72,17 @@ namespace Arcus.Security.Providers.UserSecrets
         /// <param name="secretName">The name of the secret to retrieve.</param>
         protected override SecretResult GetSecret(string secretName)
         {
-            ArgumentException.ThrowIfNullOrWhiteSpace(secretName);
-
             return _jsonProvider.TryGet(secretName, out string secretValue)
                 ? SecretResult.Success(secretName, secretValue)
                 : SecretResult.Failure($"No secret found '{secretName}' in user secrets at '{_jsonProvider.Source.Path}'");
+        }
+
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
+        public void Dispose()
+        {
+            _jsonProvider?.Dispose();
         }
     }
 }
