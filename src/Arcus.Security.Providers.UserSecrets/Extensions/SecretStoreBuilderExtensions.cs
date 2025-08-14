@@ -107,8 +107,7 @@ namespace Microsoft.Extensions.Hosting
         public static SecretStoreBuilder AddUserSecrets(this SecretStoreBuilder builder, string userSecretsId, Action<SecretProviderOptions> configureOptions)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(userSecretsId);
-
-            return builder.AddProvider((_, options) => UserSecretsSecretProvider.Create(userSecretsId, options), configureOptions);
+            return builder.AddProvider(UserSecretsSecretProvider.Create(userSecretsId), configureOptions);
         }
     }
 }

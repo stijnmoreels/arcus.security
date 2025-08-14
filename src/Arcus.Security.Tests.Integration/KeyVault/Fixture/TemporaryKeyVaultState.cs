@@ -1,8 +1,12 @@
 ﻿using System;
+using System.Collections.ObjectModel;
+using System.Linq;
 using System.Threading.Tasks;
+using Arcus.Security.Tests.Core.Assertion;
 using Arcus.Security.Tests.Integration.KeyVault.Configuration;
 using Arcus.Testing;
 using Azure.Security.KeyVault.Secrets;
+using Bogus;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Xunit;
@@ -14,6 +18,8 @@ namespace Arcus.Security.Tests.Integration.KeyVault.Fixture
         private readonly SecretClient _client;
         private readonly DisposableCollection _disposables;
         private readonly ILogger _logger;
+
+        private static readonly Faker Bogus = new();
 
         private TemporaryKeyVaultState(KeyVaultConfig config, SecretClient client, ILogger logger)
         {
@@ -33,6 +39,27 @@ namespace Arcus.Security.Tests.Integration.KeyVault.Fixture
         {
             var client = keyVault.GetClient();
             return new TemporaryKeyVaultState(keyVault, client, logger);
+        }
+
+        public async Task<Secret[]> WhenSecretVersionsAvailableAsync(string secretName)
+        {
+            int amount = Bogus.Random.Int(2, 5);
+            var results = new Collection<Secret>();
+
+            for (int i = 0; i < amount; i++)
+            {
+                results.Add(await WhenSecretAvailableAsync(secretName));
+            }
+
+            return results.ToArray();
+        }
+
+        public async Task<Secret> WhenSecretAvailableAsync(string secretName = null)
+        {
+            var secret = Secret.Generate();
+            KeyVaultSecret result = await _client.SetSecretAsync(secretName ?? secret.Name, secret.Value);
+
+            return new Secret(result.Name, result.Value, result.Properties.Version);
         }
 
         public async Task ShouldContainSecretAsync(SecretResult secret)

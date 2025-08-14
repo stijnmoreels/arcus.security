@@ -28,7 +28,7 @@ namespace Arcus.Security.Core.Providers
     /// <summary>
     /// <see cref="ISecretProvider"/> implementation that retrieves secrets from the environment.
     /// </summary>
-    public class EnvironmentVariableSecretProvider : DefaultSecretProvider
+    public class EnvironmentVariableSecretProvider : ISecretProvider
     {
         private readonly EnvironmentVariableTarget _target;
         private readonly string _prefix;
@@ -36,7 +36,7 @@ namespace Arcus.Security.Core.Providers
         /// <summary>
         /// Initializes a new instance of the <see cref="EnvironmentVariableSecretProvider"/> class.
         /// </summary>
-        public EnvironmentVariableSecretProvider(EnvironmentVariableSecretProviderOptions options) : base(options)
+        public EnvironmentVariableSecretProvider(EnvironmentVariableSecretProviderOptions options)
         {
             _target = options.Target;
             _prefix = options.Prefix;
@@ -46,7 +46,7 @@ namespace Arcus.Security.Core.Providers
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName">The name of the secret to retrieve.</param>
-        protected override SecretResult GetSecret(string secretName)
+        public SecretResult GetSecret(string secretName)
         {
             string environmentVariable = Environment.GetEnvironmentVariable(_prefix + secretName, _target);
             return environmentVariable is null

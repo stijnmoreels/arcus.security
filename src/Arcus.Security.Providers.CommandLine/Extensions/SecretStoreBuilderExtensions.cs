@@ -1,7 +1,6 @@
 ﻿using System;
 using Arcus.Security;
 using Arcus.Security.Providers.CommandLine;
-using Microsoft.Extensions.Configuration.CommandLine;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.Hosting
@@ -34,14 +33,7 @@ namespace Microsoft.Extensions.Hosting
             ArgumentNullException.ThrowIfNull(builder);
             ArgumentNullException.ThrowIfNull(arguments);
 
-            return builder.AddProvider((_, options) =>
-            {
-                var configProvider = new CommandLineConfigurationProvider(arguments);
-                configProvider.Load();
-
-                return new CommandLineSecretProvider(configProvider, options);
-
-            }, configureOptions);
+            return builder.AddProvider(CommandLineSecretProvider.Create(arguments), configureOptions);
         }
     }
 }

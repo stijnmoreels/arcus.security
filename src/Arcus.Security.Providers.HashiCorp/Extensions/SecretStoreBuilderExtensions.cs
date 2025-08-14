@@ -66,7 +66,7 @@ namespace Microsoft.Extensions.Hosting
             ArgumentNullException.ThrowIfNull(settings);
             ArgumentException.ThrowIfNullOrWhiteSpace(secretPath);
 
-            return builder.AddProvider((serviceProvider, options) =>
+            return builder.AddProvider((serviceProvider, _, options) =>
             {
                 var logger = serviceProvider.GetService<ILogger<HashiCorpSecretProvider>>();
                 return new HashiCorpSecretProvider(settings, secretPath, options, logger);

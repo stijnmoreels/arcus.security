@@ -17,7 +17,7 @@ namespace Arcus.Security.Providers.HashiCorp
     ///     See more information on HashiCorp Vault: <a href="https://www.vaultproject.io/docs" />.
     /// </para>
     /// </summary>
-    public class HashiCorpSecretProvider : DefaultSecretProvider
+    public class HashiCorpSecretProvider : ISecretProvider
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="HashiCorpSecretProvider"/> class.
@@ -37,7 +37,6 @@ namespace Arcus.Security.Providers.HashiCorp
             string secretPath,
             HashiCorpVaultOptions options,
             ILogger<HashiCorpSecretProvider> logger)
-            : base(options)
         {
             ArgumentNullException.ThrowIfNull(settings);
             ArgumentException.ThrowIfNullOrWhiteSpace(secretPath);
@@ -73,7 +72,7 @@ namespace Arcus.Security.Providers.HashiCorp
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName">The name of the secret to retrieve.</param>
-        protected override SecretResult GetSecret(string secretName)
+        public SecretResult GetSecret(string secretName)
         {
             throw new NotSupportedException(
                 "HashiCorp secrets cannot be read synchronously, only asynchronous 'GetSecretAsync(...)' operations are supported");
@@ -83,7 +82,7 @@ namespace Arcus.Security.Providers.HashiCorp
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName">The name of the secret to retrieve.</param>
-        protected override async Task<SecretResult> GetSecretAsync(string secretName)
+        public async Task<SecretResult> GetSecretAsync(string secretName)
         {
             SecretData result = await ReadSecretDataAsync();
 

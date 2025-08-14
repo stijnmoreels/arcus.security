@@ -75,29 +75,29 @@ namespace Arcus.Security.Tests.Core.Fixture
             {
                 if (Bogus.Random.Bool())
                 {
-                    stores.AddProvider((_, options) => new NeverFoundSecretProvider(options), configureOptions: null);
+                    stores.AddProvider(new NeverFoundSecretProvider(), configureOptions: null);
                 }
 
                 if (Bogus.Random.Bool())
                 {
-                    stores.AddProvider((_, options) => new AlwaysFailsSecretProvider(options), configureOptions: null);
+                    stores.AddProvider(new AlwaysFailsSecretProvider(), configureOptions: null);
                 }
 
                 configureSecretStore(config, stores);
             });
         }
 
-        private sealed class NeverFoundSecretProvider(SecretProviderOptions options) : DefaultSecretProvider(options)
+        private sealed class NeverFoundSecretProvider : ISecretProvider
         {
-            protected override SecretResult GetSecret(string secretName)
+            public SecretResult GetSecret(string secretName)
             {
                 return SecretResult.Failure($"No secret found for '{secretName}'");
             }
         }
 
-        private sealed class AlwaysFailsSecretProvider(SecretProviderOptions options) : DefaultSecretProvider(options)
+        private sealed class AlwaysFailsSecretProvider : ISecretProvider
         {
-            protected override SecretResult GetSecret(string secretName)
+            public SecretResult GetSecret(string secretName)
             {
                 throw new KeyNotFoundException("Sabotage, always fails secret retrieval");
             }

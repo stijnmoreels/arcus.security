@@ -8,7 +8,7 @@ namespace Arcus.Security.Providers.DockerSecrets
     /// <summary>
     /// Represents an <see cref="ISecretProvider" /> that provides access to the Docker secrets mounted into the Docker container as files.
     /// </summary>
-    public sealed class DockerSecretsSecretProvider : DefaultSecretProvider, IDisposable
+    public sealed class DockerSecretsSecretProvider : ISecretProvider, IDisposable
     {
         private readonly string _secretsDirectoryPath;
         private readonly KeyPerFileConfigurationProvider _provider;
@@ -18,10 +18,9 @@ namespace Arcus.Security.Providers.DockerSecrets
         /// </summary>
         /// <param name="secretsDirectoryPath">The directory path inside the Docker container where the secrets are located.</param>
         /// <param name="provider"></param>
-        /// <param name="options"></param>
         /// <exception cref="ArgumentException">Thrown when the <paramref name="secretsDirectoryPath"/> is blank or not an absolute path.</exception>
         /// <exception cref="DirectoryNotFoundException">Thrown when the <paramref name="secretsDirectoryPath"/> is not found on the system.</exception>
-        private DockerSecretsSecretProvider(string secretsDirectoryPath, KeyPerFileConfigurationProvider provider, SecretProviderOptions options) : base(options)
+        private DockerSecretsSecretProvider(string secretsDirectoryPath, KeyPerFileConfigurationProvider provider)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(secretsDirectoryPath);
             ArgumentNullException.ThrowIfNull(provider);
@@ -30,10 +29,9 @@ namespace Arcus.Security.Providers.DockerSecrets
             _provider = provider;
         }
 
-        internal static DockerSecretsSecretProvider Create(string secretsDirectoryPath, SecretProviderOptions options)
+        internal static DockerSecretsSecretProvider Create(string secretsDirectoryPath)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(secretsDirectoryPath);
-            ArgumentNullException.ThrowIfNull(options);
 
             var configuration = new KeyPerFileConfigurationSource
             {
@@ -44,14 +42,14 @@ namespace Arcus.Security.Providers.DockerSecrets
             var provider = new KeyPerFileConfigurationProvider(configuration);
             provider.Load();
 
-            return new DockerSecretsSecretProvider(secretsDirectoryPath, provider, options);
+            return new DockerSecretsSecretProvider(secretsDirectoryPath, provider);
         }
 
         /// <summary>
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName">The name of the secret to retrieve.</param>
-        protected override SecretResult GetSecret(string secretName)
+        public SecretResult GetSecret(string secretName)
         {
             return _provider.TryGet(secretName, out string secretValue)
                 ? SecretResult.Success(secretName, secretValue)

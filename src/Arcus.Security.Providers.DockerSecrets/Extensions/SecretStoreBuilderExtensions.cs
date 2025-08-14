@@ -47,7 +47,7 @@ namespace Microsoft.Extensions.Hosting
                 throw new DirectoryNotFoundException($"The directory {directoryPath} which is configured as secretsDirectoryPath does not exist.");
             }
 
-            return builder.AddProvider((_, options) => DockerSecretsSecretProvider.Create(directoryPath, options), configureOptions);
+            return builder.AddProvider(DockerSecretsSecretProvider.Create(directoryPath), configureOptions);
         }
     }
 }

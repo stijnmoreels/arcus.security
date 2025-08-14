@@ -4,33 +4,22 @@ using System.Linq;
 using Arcus.Security.Tests.Core.Assertion;
 using Bogus;
 using Microsoft.Extensions.Hosting;
-using Xunit;
 
 namespace Arcus.Security.Tests.Unit.Core.Stubs
 {
-    public class InMemorySecretProvider : DefaultSecretProvider
+    public class InMemorySecretProvider : ISecretProvider
     {
         private static readonly Faker Bogus = new();
 
         /// <summary>
         /// Initializes a new instance of the <see cref="InMemorySecretProvider"/> class.
         /// </summary>
-        public InMemorySecretProvider(Dictionary<string, string> secrets, SecretProviderOptions options) : base(options)
+        public InMemorySecretProvider(Dictionary<string, string> secrets)
         {
             Secrets = secrets;
         }
 
         public Dictionary<string, string> Secrets { get; }
-
-        public static InMemorySecretProvider Create(
-            Dictionary<string, string> secrets,
-            Action<SecretProviderOptions> configureOptions = null)
-        {
-            var options = new SecretProviderOptions(typeof(InMemorySecretProvider));
-            configureOptions?.Invoke(options);
-
-            return new InMemorySecretProvider(secrets, options);
-        }
 
         public Secret GetAnySecret()
         {
@@ -42,7 +31,7 @@ namespace Arcus.Security.Tests.Unit.Core.Stubs
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName">The name of the secret to retrieve.</param>
-        protected override SecretResult GetSecret(string secretName)
+        public SecretResult GetSecret(string secretName)
         {
             return Secrets.TryGetValue(secretName, out string secretValue)
                 ? SecretResult.Success(secretName, secretValue)
@@ -59,15 +48,6 @@ namespace Arcus.Security.Tests.Unit.Core.Stubs
             Secrets[secret.Name] = newValue = $"new-value-{Bogus.Random.Guid()}";
             return new Secret(secret.Name, newValue, secret.Version);
         }
-
-        public void VerifyContainsSecret(Secret secret, Action<SecretOptions> configureOptions = null)
-        {
-            var options = new SecretOptions();
-            configureOptions?.Invoke(options);
-
-            Secret syncSecret = AssertResult.Success(GetSecret(secret.Name, options));
-            Assert.Equal(secret.Value, syncSecret.Value);
-        }
     }
 
     public static class InMemorySecretProviderExtensions
@@ -83,7 +63,7 @@ namespace Arcus.Security.Tests.Unit.Core.Stubs
             Action<SecretProviderOptions> configureOptions = null)
         {
             ArgumentNullException.ThrowIfNull(builder);
-            return builder.AddProvider((_, options) => new InMemorySecretProvider(secrets, options), configureOptions);
+            return builder.AddProvider(new InMemorySecretProvider(secrets), configureOptions);
         }
     }
 }

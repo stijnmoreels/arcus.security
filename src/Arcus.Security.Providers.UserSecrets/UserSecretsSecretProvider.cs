@@ -9,7 +9,7 @@ namespace Arcus.Security.Providers.UserSecrets
     /// <summary>
     /// <see cref="ISecretProvider"/> implementation that provides user secrets.
     /// </summary>
-    public sealed class UserSecretsSecretProvider : DefaultSecretProvider, IDisposable
+    public sealed class UserSecretsSecretProvider : ISecretProvider, IDisposable
     {
         private const string SecretsFileName = "secrets.json";
 
@@ -18,13 +18,13 @@ namespace Arcus.Security.Providers.UserSecrets
         /// <summary>
         /// Initializes a new instance of the <see cref="UserSecretsSecretProvider"/> class.
         /// </summary>
-        internal UserSecretsSecretProvider(JsonConfigurationProvider jsonProvider, SecretProviderOptions options) : base(options)
+        internal UserSecretsSecretProvider(JsonConfigurationProvider jsonProvider)
         {
             ArgumentNullException.ThrowIfNull(jsonProvider);
             _jsonProvider = jsonProvider;
         }
 
-        internal static UserSecretsSecretProvider Create(string userSecretsId, SecretProviderOptions options)
+        internal static UserSecretsSecretProvider Create(string userSecretsId)
         {
             string directoryPath = GetUserSecretsDirectoryPath(userSecretsId);
             JsonConfigurationSource source = CreateJsonFileSource(directoryPath);
@@ -32,7 +32,7 @@ namespace Arcus.Security.Providers.UserSecrets
             var provider = new JsonConfigurationProvider(source);
             provider.Load();
 
-            return new UserSecretsSecretProvider(provider, options);
+            return new UserSecretsSecretProvider(provider);
         }
 
         private static string GetUserSecretsDirectoryPath(string usersSecretsId)
@@ -70,7 +70,7 @@ namespace Arcus.Security.Providers.UserSecrets
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName">The name of the secret to retrieve.</param>
-        protected override SecretResult GetSecret(string secretName)
+        public SecretResult GetSecret(string secretName)
         {
             return _jsonProvider.TryGet(secretName, out string secretValue)
                 ? SecretResult.Success(secretName, secretValue)

@@ -5,6 +5,7 @@ using Arcus.Security.Tests.Core.Assertion;
 using Arcus.Security.Tests.Core.Fixture;
 using Arcus.Security.Tests.Integration.KeyVault.Configuration;
 using Arcus.Security.Tests.Integration.KeyVault.Fixture;
+using Bogus;
 using Microsoft.Extensions.Hosting;
 using Xunit;
 using Xunit.Abstractions;
@@ -70,6 +71,51 @@ namespace Arcus.Security.Tests.Integration.KeyVault
             await secretStore.ShouldContainSecretAsync(prefix + AvailableSecret.Name, AvailableSecret.Value);
         }
 
+        [Fact]
+        public async Task AddKeyVault_WithMultipleVersions_UsesKeyVaultVersionedSecrets()
+        {
+            // Arrange
+            using var secretStore = GivenSecretStore();
+
+            string secretName = $"{Bogus.Lorem.Word()}secret";
+            Secret[] storedVersions = await KeyVault.WhenSecretVersionsAvailableAsync(secretName);
+
+            // Act
+            secretStore.WhenSecretStore(store =>
+            {
+                store.AddAzureKeyVault(KeyVault);
+            });
+
+            // Assert
+            var provider = secretStore.ShouldContainProvider<KeyVaultSecretProvider>();
+            await provider.ShouldContainSecretVersionsAsync(secretName, storedVersions);
+        }
+
+        [Fact]
+        public async Task AddKeyVaultWithVersionedSecret_WithMultipleVersions_UsesKeyVaultVersionedSecretsWithinBounds()
+        {
+            // Arrange
+            using var secretStore = GivenSecretStore();
+
+            string secretName = $"{Bogus.Lorem.Word()}secret";
+            Secret[] storedVersions = await KeyVault.WhenSecretVersionsAvailableAsync(secretName);
+            int allowedVersions = Bogus.Random.Int(1, storedVersions.Length);
+
+            // Act
+            secretStore.WhenSecretStore(store =>
+            {
+                store.AddAzureKeyVault(KeyVault, options =>
+                {
+                    options.AddVersionedSecret(secretName, allowedVersions);
+                });
+            });
+
+            // Assert
+            var provider = secretStore.ShouldContainProvider<KeyVaultSecretProvider>();
+            Secret[] actualVersions = await provider.ShouldContainSecretVersionsAsync(secretName, storedVersions);
+            Assert.True(actualVersions.Length <= allowedVersions, "secret versions should always be within the bounds of the configured allowed versions");
+        }
+
         private SecretStoreTestContext GivenSecretStore()
         {
             return SecretStoreTestContext.Given(Logger);
@@ -89,7 +135,9 @@ namespace Arcus.Security.Tests.Integration.KeyVault
 
     internal static class KeyVaultSecretProviderExtensions
     {
-        internal static SecretStoreBuilder AddAzureKeyVault(this SecretStoreBuilder store, TemporaryKeyVaultState keyVaultState, Action<SecretProviderOptions> configureOptions = null)
+        private static readonly Faker Bogus = new();
+
+        internal static SecretStoreBuilder AddAzureKeyVault(this SecretStoreBuilder store, TemporaryKeyVaultState keyVaultState, Action<KeyVaultSecretProviderOptions> configureOptions = null)
         {
             var keyVault = keyVaultState.Config;
             return configureOptions is null
@@ -100,6 +148,17 @@ namespace Arcus.Security.Tests.Integration.KeyVault
         internal static Task<SecretResult> StoreSecretAsync(this KeyVaultSecretProvider provider, Secret secret)
         {
             return provider.StoreSecretAsync(secret.Name, secret.Value);
+        }
+
+        internal static async Task<Secret[]> ShouldContainSecretVersionsAsync(this KeyVaultSecretProvider provider, string secretName, Secret[] storedVersions)
+        {
+            int amountOfVersions = Bogus.Random.Int(1, storedVersions.Length);
+            Secret[] result = AssertResult.Success(await provider.GetSecretsAsync(secretName, amountOfVersions));
+
+            Assert.NotEmpty(result);
+            Assert.All(result, actual => Assert.Contains(actual, storedVersions));
+
+            return result;
         }
     }
 }

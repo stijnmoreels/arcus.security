@@ -1,13 +1,10 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Linq;
 using Arcus.Security;
 using Arcus.Security.Core;
-using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Primitives;
 
 // ReSharper disable once CheckNamespace
 namespace Microsoft.Extensions.Hosting
@@ -17,7 +14,7 @@ namespace Microsoft.Extensions.Hosting
     /// </summary>
     public class SecretStoreBuilder
     {
-        private readonly SecretStoreOptions _options = new();
+        private readonly DefaultSecretStoreContext _context = new();
 
         /// <summary>
         /// Initializes a new instance of the <see cref="SecretStoreBuilder"/> class.
@@ -47,10 +44,28 @@ namespace Microsoft.Extensions.Hosting
         public SecretStoreBuilder AddProvider<TProvider>(TProvider secretProvider)
             where TProvider : ISecretProvider
         {
+            return AddProvider(secretProvider, configureOptions: null);
+        }
+
+        /// <summary>
+        /// Adds an <see cref="ISecretProvider"/> implementation to the secret store of the application.
+        /// </summary>
+        /// <typeparam name="TProvider">The custom user-implemented <see cref="ISecretProvider"/> type to register in the secret store.</typeparam>
+        /// <param name="secretProvider">The provider which secrets are added to the secret store.</param>
+        /// <param name="configureOptions">The function to configure the registration of the <see cref="ISecretProvider"/> in the secret store.</param>
+        /// <returns>
+        ///     The extended secret store with the given <paramref name="secretProvider"/>.
+        /// </returns>
+        /// <exception cref="ArgumentNullException">Thrown when the <paramref name="secretProvider"/> is <c>null</c>.</exception>
+        public SecretStoreBuilder AddProvider<TProvider>(TProvider secretProvider, Action<SecretProviderOptions> configureOptions)
+            where TProvider : ISecretProvider
+        {
             ArgumentNullException.ThrowIfNull(secretProvider);
             Services.AddSingleton(_ =>
             {
-                var options = new SecretProviderOptions(typeof(TProvider)) { SecretStoreRef = _options };
+                var options = new SecretProviderOptions(typeof(TProvider));
+                configureOptions?.Invoke(options);
+
                 return new SecretProviderRegistration(secretProvider, options);
             });
 
@@ -68,7 +83,7 @@ namespace Microsoft.Extensions.Hosting
         /// </returns>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="implementationFactory"/> is <c>null</c>.</exception>
         public SecretStoreBuilder AddProvider<TProvider>(
-            Func<IServiceProvider, SecretProviderOptions, TProvider> implementationFactory,
+            Func<IServiceProvider, ISecretStoreContext, TProvider> implementationFactory,
             Action<SecretProviderOptions> configureOptions)
             where TProvider : ISecretProvider
         {
@@ -76,10 +91,10 @@ namespace Microsoft.Extensions.Hosting
 
             Services.AddSingleton(serviceProvider =>
             {
-                var options = new SecretProviderOptions(typeof(TProvider)) { SecretStoreRef = _options };
+                var options = new SecretProviderOptions(typeof(TProvider));
                 configureOptions?.Invoke(options);
 
-                return new SecretProviderRegistration(implementationFactory(serviceProvider, options), options);
+                return new SecretProviderRegistration(implementationFactory(serviceProvider, _context), options);
             });
 
             return this;
@@ -97,7 +112,7 @@ namespace Microsoft.Extensions.Hosting
         /// </returns>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="implementationFactory"/> is <c>null</c>.</exception>
         public SecretStoreBuilder AddProvider<TProvider, TOptions>(
-            Func<IServiceProvider, TOptions, TProvider> implementationFactory,
+            Func<IServiceProvider, ISecretStoreContext, TOptions, TProvider> implementationFactory,
             Action<TOptions> configureOptions)
             where TProvider : ISecretProvider
             where TOptions : SecretProviderOptions, new()
@@ -106,10 +121,10 @@ namespace Microsoft.Extensions.Hosting
 
             Services.AddSingleton(serviceProvider =>
             {
-                var options = new TOptions { SecretStoreRef = _options };
+                var options = new TOptions();
                 configureOptions?.Invoke(options);
 
-                return new SecretProviderRegistration(implementationFactory(serviceProvider, options), options);
+                return new SecretProviderRegistration(implementationFactory(serviceProvider, _context, options), options);
             });
 
             return this;
@@ -121,7 +136,7 @@ namespace Microsoft.Extensions.Hosting
         /// <param name="duration">The expiration time when the secret should be invalidated in the cache.</param>
         public void UseCaching(TimeSpan duration)
         {
-            _options.UseCaching(duration);
+            _context.Cache.SetDuration(duration);
         }
 
         /// <summary>
@@ -135,67 +150,13 @@ namespace Microsoft.Extensions.Hosting
                 var registrations = serviceProvider.GetServices<SecretProviderRegistration>().ToArray();
                 var logger = serviceProvider.GetService<ILoggerFactory>().CreateLogger("secret store");
 
-                return new CompositeSecretProvider(registrations, _options, logger);
+                return new CompositeSecretProvider(registrations, _context.Cache, logger);
             });
-
-            Services.TryAddSingleton<ISecretProvider>(serviceProvider => serviceProvider.GetRequiredService<ISecretStore>());
         }
-    }
 
-    internal class SecretStoreOptions
-    {
-        private IMemoryCache _cache = new NullMemoryCache();
-        private MemoryCacheEntryOptions _cacheEntry = new();
-
-        internal void UseCaching(TimeSpan duration)
+        internal sealed class DefaultSecretStoreContext : ISecretStoreContext
         {
-            _cache = new MemoryCache(new MemoryCacheOptions());
-            _cacheEntry = new MemoryCacheEntryOptions().SetSlidingExpiration(duration);
+            public SecretStoreCaching Cache { get; set; } = new();
         }
-
-        internal bool TryGetCachedSecret(string secretName, SecretOptions secretOptions, out SecretResult secret)
-        {
-            if (secretOptions.UseCache)
-            {
-                return _cache.TryGetValue(secretName, out secret);
-            }
-
-            secret = null;
-            return false;
-        }
-
-        internal void UpdateSecretInCache(string secretName, SecretResult result, SecretOptions options = null)
-        {
-            if (result.IsSuccess && (options is null || options.UseCache))
-            {
-                _cache.Set(secretName, result, _cacheEntry);
-            }
-        }
-    }
-
-    internal sealed class NullMemoryCache : IMemoryCache
-    {
-        public ICacheEntry CreateEntry(object key) => new NullCacheEntry();
-        public void Remove(object key) { }
-        public void Dispose() { }
-        public bool TryGetValue(object key, out object value)
-        {
-            value = null;
-            return false;
-        }
-    }
-
-    internal sealed class NullCacheEntry : ICacheEntry
-    {
-        public object Key { get; }
-        public object Value { get; set; }
-        public DateTimeOffset? AbsoluteExpiration { get; set; }
-        public TimeSpan? AbsoluteExpirationRelativeToNow { get; set; }
-        public TimeSpan? SlidingExpiration { get; set; }
-        public IList<IChangeToken> ExpirationTokens { get; }
-        public IList<PostEvictionCallbackRegistration> PostEvictionCallbacks { get; }
-        public CacheItemPriority Priority { get; set; }
-        public long? Size { get; set; }
-        public void Dispose() { }
     }
 }

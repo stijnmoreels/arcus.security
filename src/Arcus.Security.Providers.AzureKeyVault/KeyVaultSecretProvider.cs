@@ -14,34 +14,39 @@ namespace Arcus.Security.Providers.AzureKeyVault
     /// <summary>
     ///     Secret key provider that connects to Azure Key Vault
     /// </summary>
-    public class KeyVaultSecretProvider : DefaultSecretProvider
+    public class KeyVaultSecretProvider : ISecretProvider
     {
-        private readonly SecretClient _secretClient;
+        private readonly SecretClient _client;
+        private readonly ISecretStoreContext _store;
+        private readonly KeyVaultSecretProviderOptions _options;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="KeyVaultSecretProvider"/> class.
         /// </summary>
-        internal KeyVaultSecretProvider(SecretClient client, SecretProviderOptions options) : base(options)
+        internal KeyVaultSecretProvider(SecretClient client, ISecretStoreContext store, KeyVaultSecretProviderOptions options)
         {
-            _secretClient = client;
+            ArgumentNullException.ThrowIfNull(client);
+            _client = client;
+            _store = store;
+            _options = options;
         }
 
         /// <summary>
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName">The name of the secret to retrieve.</param>
-        protected override SecretResult GetSecret(string secretName)
+        public SecretResult GetSecret(string secretName)
         {
-            return ThrottleTooManyRequests(secretName, () => _secretClient.GetSecret(secretName));
+            return ThrottleTooManyRequests(secretName, () => _client.GetSecret(secretName));
         }
 
         /// <summary>
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName">The name of the secret to retrieve.</param>
-        protected override Task<SecretResult> GetSecretAsync(string secretName)
+        public Task<SecretResult> GetSecretAsync(string secretName)
         {
-            return ThrottleTooManyRequestsAsync(secretName, async () => await _secretClient.GetSecretAsync(secretName));
+            return ThrottleTooManyRequestsAsync(secretName, async () => await _client.GetSecretAsync(secretName));
         }
 
         /// <summary>
@@ -57,9 +62,9 @@ namespace Arcus.Security.Providers.AzureKeyVault
 
             SecretResult result =
                 await ThrottleTooManyRequestsAsync(secretName,
-                    () => _secretClient.SetSecretAsync(secretName, secretValue));
+                    () => _client.SetSecretAsync(secretName, secretValue));
 
-            UpdateSecretInCache(secretName, result);
+            await _store.Cache.RefreshSecretAsync(secretName, result);
             return result;
         }
 
@@ -84,12 +89,12 @@ namespace Arcus.Security.Providers.AzureKeyVault
             var results = new Collection<SecretResult>();
             foreach (string version in versions)
             {
-                if (results.Count == amountOfVersions)
+                if (results.Count == amountOfVersions || !_options.IsAllowedToRetrieveAnother(secretName, results.Count))
                 {
                     break;
                 }
 
-                SecretResult result = await ThrottleTooManyRequestsAsync(secretName, () => _secretClient.GetSecretAsync(secretName, version));
+                SecretResult result = await ThrottleTooManyRequestsAsync(secretName, () => _client.GetSecretAsync(secretName, version));
                 results.Add(result);
             }
 
@@ -100,7 +105,7 @@ namespace Arcus.Security.Providers.AzureKeyVault
         {
             return ThrottleTooManyRequestsAsync(async () =>
             {
-                AsyncPageable<SecretProperties> properties = _secretClient.GetPropertiesOfSecretVersionsAsync(secretName);
+                AsyncPageable<SecretProperties> properties = _client.GetPropertiesOfSecretVersionsAsync(secretName);
 
                 var versions = new Collection<SecretProperties>();
                 await foreach (SecretProperties property in properties)

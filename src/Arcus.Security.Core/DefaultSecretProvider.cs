@@ -4,7 +4,9 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Caching.Memory;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Primitives;
 
 namespace Arcus.Security
 {
@@ -53,48 +55,17 @@ namespace Arcus.Security
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName">The </param>
-        /// <param name="options"></param>
-        Task<SecretResult> GetSecretAsync(string secretName, SecretOptions options)
+        Task<SecretResult> GetSecretAsync(string secretName)
         {
-            return Task.FromResult(GetSecret(secretName, options));
+            return Task.FromResult(GetSecret(secretName));
         }
 
         /// <summary>
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName"></param>
-        /// <param name="options"></param>
         /// <returns></returns>
-        SecretResult GetSecret(string secretName, SecretOptions options);
-    }
-
-    /// <summary>
-    /// 
-    /// </summary>
-    // ReSharper disable once InconsistentNaming
-    public static class ISecretProviderExtensions
-    {
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="secretProvider"></param>
-        /// <param name="secretName"></param>
-        /// <returns></returns>
-        public static Task<SecretResult> GetSecretAsync(this ISecretProvider secretProvider, string secretName)
-        {
-            return secretProvider.GetSecretAsync(secretName, options: null);
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="secretProvider"></param>
-        /// <param name="secretName"></param>
-        /// <returns></returns>
-        public static SecretResult GetSecret(this ISecretProvider secretProvider, string secretName)
-        {
-            return secretProvider.GetSecret(secretName, options: null);
-        }
+        SecretResult GetSecret(string secretName);
     }
 
     /// <summary>
@@ -285,7 +256,7 @@ namespace Arcus.Security
     /// <summary>
     /// Represents the central point of contact to retrieve secrets from registered <see cref="ISecretProvider"/>s in the user application.
     /// </summary>
-    public interface ISecretStore : ISecretProvider
+    public interface ISecretStore : ISecretProvider, ISecretStoreContext
     {
         /// <summary>
         /// Gets the registered named <see cref="ISecretProvider"/> from the secret store.
@@ -297,6 +268,115 @@ namespace Arcus.Security
         /// </param>
         /// <exception cref="ArgumentException">Thrown when the <paramref name="providerName"/> is blank.</exception>
         TProvider GetProvider<TProvider>(string providerName) where TProvider : ISecretProvider;
+
+        /// <summary>
+        /// Gets a stored secret by its name.
+        /// </summary>
+        /// <param name="secretName">The </param>
+        /// <param name="configureOptions"></param>
+        Task<SecretResult> GetSecretAsync(string secretName, Action<SecretOptions> configureOptions);
+
+        /// <summary>
+        /// Gets a stored secret by its name.
+        /// </summary>
+        /// <param name="secretName"></param>
+        /// <param name="configureOptions"></param>
+        /// <returns></returns>
+        SecretResult GetSecret(string secretName, Action<SecretOptions> configureOptions);
+    }
+
+    /// <summary>
+    /// Represents the current user-configurable situation of an <see cref="ISecretStore"/> implementation,
+    /// a.k.a. all extra options the user set during the secret store registration (like: <see cref="SecretStoreBuilder.UseCaching"/>).
+    /// </summary>
+    public interface ISecretStoreContext
+    {
+        /// <summary>
+        /// Gets the service to interact with the possible configured cache on the secret store.
+        /// </summary>
+        SecretStoreCaching Cache { get; }
+    }
+
+    /// <summary>
+    /// Represents the service to interact with the cache of the secret store.
+    /// </summary>
+    public class SecretStoreCaching
+    {
+        private IMemoryCache _cache = new NullMemoryCache();
+        private MemoryCacheEntryOptions _cacheEntry = new();
+
+        internal void SetDuration(TimeSpan duration)
+        {
+            _cache = new MemoryCache(new MemoryCacheOptions());
+            _cacheEntry = new MemoryCacheEntryOptions().SetSlidingExpiration(duration);
+        }
+
+        internal bool TryGetCachedSecret(string secretName, SecretOptions secretOptions, out SecretResult secret)
+        {
+            if (secretOptions.UseCache)
+            {
+                return _cache.TryGetValue(secretName, out secret);
+            }
+
+            secret = null;
+            return false;
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="secretName"></param>
+        /// <param name="result"></param>
+        /// <returns></returns>
+        public Task RefreshSecretAsync(string secretName, SecretResult result)
+        {
+            UpdateSecretInCache(secretName, result);
+            return Task.CompletedTask;
+        }
+
+        internal void UpdateSecretInCache(string secretName, SecretResult result, SecretOptions options = null)
+        {
+            if (result.IsSuccess && (options is null || options.UseCache))
+            {
+                _cache.Set(secretName, result, _cacheEntry);
+            }
+        }
+
+        /// <summary>
+        /// Removes a secret from the cache on the secret provider,
+        /// so that the next time this secret is retrieved, a fresh secret is provided from the registered <see cref="ISecretProvider"/>.
+        /// </summary>
+        public Task InvalidateSecretAsync(string secretName)
+        {
+            _cache.Remove(secretName);
+            return Task.CompletedTask;
+        }
+
+        internal sealed class NullMemoryCache : IMemoryCache
+        {
+            public ICacheEntry CreateEntry(object key) => new NullCacheEntry();
+            public void Remove(object key) { }
+            public void Dispose() { }
+            public bool TryGetValue(object key, out object value)
+            {
+                value = null;
+                return false;
+            }
+        }
+
+        internal sealed class NullCacheEntry : ICacheEntry
+        {
+            public object Key { get; }
+            public object Value { get; set; }
+            public DateTimeOffset? AbsoluteExpiration { get; set; }
+            public TimeSpan? AbsoluteExpirationRelativeToNow { get; set; }
+            public TimeSpan? SlidingExpiration { get; set; }
+            public IList<IChangeToken> ExpirationTokens { get; }
+            public IList<PostEvictionCallbackRegistration> PostEvictionCallbacks { get; }
+            public CacheItemPriority Priority { get; set; }
+            public long? Size { get; set; }
+            public void Dispose() { }
+        }
     }
 
     /// <summary>
@@ -319,6 +399,30 @@ namespace Arcus.Security
             ArgumentNullException.ThrowIfNull(secretStore);
             return secretStore.GetProvider<ISecretProvider>(providerName);
         }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="store"></param>
+        /// <param name="secretName"></param>
+        /// <returns></returns>
+        public static SecretResult GetSecret(this ISecretStore store, string secretName)
+        {
+            ArgumentNullException.ThrowIfNull(store);
+            return store.GetSecret(secretName, configureOptions: null);
+        }
+
+        /// <summary>
+        /// 
+        /// </summary>
+        /// <param name="store"></param>
+        /// <param name="secretName"></param>
+        /// <returns></returns>
+        public static Task<SecretResult> GetSecretAsync(this ISecretStore store, string secretName)
+        {
+            ArgumentNullException.ThrowIfNull(store);
+            return store.GetSecretAsync(secretName, configureOptions: null);
+        }
     }
 
     /// <summary>
@@ -328,7 +432,6 @@ namespace Arcus.Security
     {
         private readonly Collection<Func<string, string>> _secretNameMappers = [];
         private string _name;
-        private SecretStoreOptions _secretStoreRef;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="SecretProviderOptions"/> class.
@@ -342,22 +445,6 @@ namespace Arcus.Security
         }
 
         internal Func<string, string> SecretNameMapper => name => _secretNameMappers.Aggregate(name, (x, map) => map(x));
-
-        internal SecretStoreOptions SecretStoreRef
-        {
-            get
-            {
-                if (_secretStoreRef is null)
-                {
-                    throw new InvalidOperationException(
-                        "Cannot access the registered secret store, as no reference was set on the secret provider options, " +
-                        "this happens when the options are accessed at an incorrect time");
-                }
-
-                return _secretStoreRef;
-            }
-            set => _secretStoreRef = value;
-        }
 
         /// <summary>
         /// Configures the secret provider to map the secret name before looking it up in the secret store.
@@ -385,70 +472,6 @@ namespace Arcus.Security
                 ArgumentException.ThrowIfNullOrWhiteSpace(value);
                 _name = value;
             }
-        }
-    }
-
-    /// <summary>
-    /// Represents a kickstart implementation of an <see cref="ISecretProvider"/>
-    /// with infrastructure boilerplate code embedded.
-    /// </summary>
-    public abstract class DefaultSecretProvider : ISecretProvider
-    {
-        /// <summary>
-        /// Initializes a new instance of the <see cref="DefaultSecretProvider"/> class.
-        /// </summary>
-        protected DefaultSecretProvider(SecretProviderOptions options)
-        {
-            ArgumentNullException.ThrowIfNull(options);
-            ProviderOptions = options;
-        }
-
-        internal SecretProviderOptions ProviderOptions { get; }
-
-        /// <summary>
-        /// Gets a stored secret by its name.
-        /// </summary>
-        /// <param name="secretName">The name of the secret to retrieve.</param>
-        /// <param name="options"></param>
-        /// <returns></returns>
-        public virtual SecretResult GetSecret(string secretName, SecretOptions options)
-        {
-            return GetSecret(secretName);
-        }
-
-        /// <summary>
-        /// Gets a stored secret by its name.
-        /// </summary>
-        /// <param name="secretName">The name of the secret to retrieve.</param>
-        protected abstract SecretResult GetSecret(string secretName);
-
-        /// <summary>
-        /// Gets a stored secret by its name.
-        /// </summary>
-        /// <param name="secretName">The name of the secret to retrieve.</param>
-        /// <param name="options"></param>
-        public Task<SecretResult> GetSecretAsync(string secretName, SecretOptions options)
-        {
-            return GetSecretAsync(secretName);
-        }
-
-        /// <summary>
-        /// Gets a stored secret by its name.
-        /// </summary>
-        /// <param name="secretName">The name of the secret to retrieve.</param>
-        protected virtual Task<SecretResult> GetSecretAsync(string secretName)
-        {
-            return Task.FromResult(GetSecret(secretName));
-        }
-
-        /// <summary>
-        /// 
-        /// </summary>
-        /// <param name="secretName"></param>
-        /// <param name="result"></param>
-        protected void UpdateSecretInCache(string secretName, SecretResult result)
-        {
-            ProviderOptions.SecretStoreRef.UpdateSecretInCache(secretName, result);
         }
     }
 }

@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 
@@ -14,7 +13,6 @@ namespace Arcus.Security.Core
     /// </summary>
     internal class CompositeSecretProvider : ISecretStore
     {
-        private readonly SecretStoreOptions _options;
         private readonly IReadOnlyCollection<SecretProviderRegistration> _secretProviders;
         private readonly Dictionary<string, Lazy<ISecretProvider>> _secretProvidersByName;
         private readonly ILogger _logger;
@@ -23,26 +21,32 @@ namespace Arcus.Security.Core
         /// Initializes a new instance of the <see cref="CompositeSecretProvider"/> class.
         /// </summary>
         /// <param name="secretProviderRegistrations">The sequence of all available registered secret provider registrations.</param>
-        /// <param name="options"></param>
+        /// <param name="cache"></param>
         /// <param name="logger">The logger instance to write diagnostic messages during the retrieval of secrets via the registered <paramref name="secretProviderRegistrations"/>.</param>
         /// <exception cref="ArgumentNullException">Thrown when the <paramref name="secretProviderRegistrations"/> is <c>null</c>.</exception>
         /// <exception cref="ArgumentException">Thrown when the <paramref name="secretProviderRegistrations"/> contains any <c>null</c> values.</exception>
         internal CompositeSecretProvider(
             IReadOnlyCollection<SecretProviderRegistration> secretProviderRegistrations,
-            SecretStoreOptions options,
+            SecretStoreCaching cache,
             ILogger logger)
         {
             ArgumentNullException.ThrowIfNull(secretProviderRegistrations);
-            ArgumentNullException.ThrowIfNull(options);
+            ArgumentNullException.ThrowIfNull(cache);
 
             var registrations = secretProviderRegistrations.Where(r => r != null).ToArray();
 
             _secretProviders = registrations;
-            _options = options;
             _logger = logger ?? NullLogger<CompositeSecretProvider>.Instance;
 
             _secretProvidersByName = CreateGroupedSecretProviders(registrations, logger);
+
+            Cache = cache;
         }
+
+        /// <summary>
+        /// Gets the service to interact with the possible configured cache on the secret store.
+        /// </summary>
+        public SecretStoreCaching Cache { get; }
 
         /// <summary>
         /// Gets the registered named <see cref="ISecretProvider"/> from the secret store.
@@ -78,38 +82,42 @@ namespace Arcus.Security.Core
                 $"{Environment.NewLine}→ Register the secret provider with a name using the overloads during registration (i.e. `stores.AddAzureKeyVault(..., options => options.Name = \"AdminSecrets\")`)");
         }
 
+        public SecretResult GetSecret(string secretName) => GetSecret(secretName, configureOptions: null);
+        public Task<SecretResult> GetSecretAsync(string secretName) => GetSecretAsync(secretName, configureOptions: null);
+
         /// <summary>
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName"></param>
-        /// <param name="options"></param>
+        /// <param name="configureOptions"></param>
         /// <returns></returns>
-        public SecretResult GetSecret(string secretName, SecretOptions options)
+        public SecretResult GetSecret(string secretName, Action<SecretOptions> configureOptions)
         {
             return GetSecretCoreAsync(secretName, (provider, name) =>
             {
-                return Task.FromResult(provider.GetSecret(name, options));
+                return Task.FromResult(provider.GetSecret(name));
 
-            }, options).Result;
+            }, configureOptions).Result;
         }
 
         /// <summary>
         /// Gets a stored secret by its name.
         /// </summary>
         /// <param name="secretName">The </param>
-        /// <param name="options"></param>
-        public Task<SecretResult> GetSecretAsync(string secretName, SecretOptions options)
+        /// <param name="configureOptions"></param>
+        public Task<SecretResult> GetSecretAsync(string secretName, Action<SecretOptions> configureOptions)
         {
-            return GetSecretCoreAsync(secretName, (provider, name) => provider.GetSecretAsync(name, options), options);
+            return GetSecretCoreAsync(secretName, (provider, name) => provider.GetSecretAsync(name), configureOptions);
         }
 
         private async Task<SecretResult> GetSecretCoreAsync(
             string secretName,
             Func<ISecretProvider, string, Task<SecretResult>> getSecretAsync,
-            SecretOptions options)
+            Action<SecretOptions> configureOptions)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(secretName);
-            options ??= new SecretOptions();
+            var options = new SecretOptions();
+            configureOptions?.Invoke(options);
 
             var failures = new Collection<(string providerName, SecretResult)>();
             foreach (SecretProviderRegistration source in _secretProviders)
@@ -118,7 +126,7 @@ namespace Arcus.Security.Core
                 try
                 {
                     var mapped = source.Options.SecretNameMapper(secretName);
-                    if (_options.TryGetCachedSecret(secretName, options, out SecretResult cached))
+                    if (Cache.TryGetCachedSecret(secretName, options, out SecretResult cached))
                     {
                         return cached;
                     }
@@ -133,7 +141,7 @@ namespace Arcus.Security.Core
                     if (result.IsSuccess)
                     {
                         _logger.LogDebug("Secret store found secret '{SecretName}' in secret provider '{ProviderName}'", secretName, providerName);
-                        _options.UpdateSecretInCache(secretName, result, options);
+                        Cache.UpdateSecretInCache(secretName, result, options);
                         return result;
                     }
 
@@ -189,7 +197,7 @@ namespace Arcus.Security.Core
                                return provider.SecretProvider;
                            }
 
-                           return new CompositeSecretProvider(group.ToArray(), _options, logger);
+                           return new CompositeSecretProvider(group.ToArray(), Cache, logger);
                        });
                    });
         }

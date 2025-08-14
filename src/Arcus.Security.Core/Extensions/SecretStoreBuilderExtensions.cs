@@ -29,7 +29,7 @@ namespace Microsoft.Extensions.Hosting
         public static SecretStoreBuilder AddEnvironmentVariables(this SecretStoreBuilder builder, Action<EnvironmentVariableSecretProviderOptions> configureOptions)
         {
             ArgumentNullException.ThrowIfNull(builder);
-            return builder.AddProvider((_, options) => new EnvironmentVariableSecretProvider(options), configureOptions);
+            return builder.AddProvider((_, _, options) => new EnvironmentVariableSecretProvider(options), configureOptions);
         }
 
         /// <summary>
@@ -54,7 +54,7 @@ namespace Microsoft.Extensions.Hosting
             ArgumentNullException.ThrowIfNull(builder);
             ArgumentNullException.ThrowIfNull(configuration);
 
-            return builder.AddProvider((_, options) => new ConfigurationSecretProvider(configuration, options), configureOptions);
+            return builder.AddProvider(new ConfigurationSecretProvider(configuration), configureOptions);
         }
     }
 }

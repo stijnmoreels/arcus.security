@@ -1,5 +1,4 @@
 ﻿using System;
-using Arcus.Security;
 using Arcus.Security.Providers.AzureKeyVault;
 using Azure.Core;
 using Azure.Security.KeyVault.Secrets;
@@ -40,7 +39,7 @@ namespace Microsoft.Extensions.Hosting
             this SecretStoreBuilder builder,
             string vaultUri,
             TokenCredential tokenCredential,
-            Action<SecretProviderOptions> configureProviderOptions)
+            Action<KeyVaultSecretProviderOptions> configureProviderOptions)
         {
             ArgumentNullException.ThrowIfNull(builder);
             ArgumentException.ThrowIfNullOrWhiteSpace(vaultUri);
@@ -72,14 +71,14 @@ namespace Microsoft.Extensions.Hosting
         public static SecretStoreBuilder AddAzureKeyVault(
             this SecretStoreBuilder builder,
             Func<IServiceProvider, SecretClient> implementationFactory,
-            Action<SecretProviderOptions> configureProviderOptions)
+            Action<KeyVaultSecretProviderOptions> configureProviderOptions)
         {
             ArgumentNullException.ThrowIfNull(builder);
             ArgumentNullException.ThrowIfNull(implementationFactory);
 
-            return builder.AddProvider((serviceProvider, options) =>
+            return builder.AddProvider((serviceProvider, context, options) =>
             {
-                return new KeyVaultSecretProvider(implementationFactory(serviceProvider), options);
+                return new KeyVaultSecretProvider(implementationFactory(serviceProvider), context, options);
 
             }, configureProviderOptions);
         }
