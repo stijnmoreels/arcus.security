@@ -50,7 +50,7 @@ namespace Arcus.Security.Core.Providers
         {
             string environmentVariable = Environment.GetEnvironmentVariable(_prefix + secretName, _target);
             return environmentVariable is null
-                ? SecretResult.Failure($"No secret found in environment variable for '{_prefix}{secretName}'")
+                ? SecretResult.NotFound($"No secret found in environment variable for '{_prefix}{secretName}'")
                 : SecretResult.Success(secretName, environmentVariable);
         }
     }

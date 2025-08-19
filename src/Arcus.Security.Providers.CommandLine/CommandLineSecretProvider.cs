@@ -1,6 +1,7 @@
 ﻿using System;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Configuration.CommandLine;
+using static Arcus.Security.SecretResult;
 
 namespace Arcus.Security.Providers.CommandLine
 {
@@ -36,8 +37,8 @@ namespace Arcus.Security.Providers.CommandLine
         public SecretResult GetSecret(string secretName)
         {
             return _configurationProvider.TryGet(secretName, out string secretValue)
-                ? SecretResult.Success(secretName, secretValue)
-                : SecretResult.Failure($"No '{secretName}' secret found in command line arguments");
+                ? Success(secretName, secretValue)
+                : NotFound($"No '{secretName}' secret found in command line arguments");
         }
     }
 }

@@ -94,11 +94,7 @@ namespace Arcus.Security
         /// </summary>
         public static SecretsResult Create(IEnumerable<SecretResult> secrets)
         {
-            if (secrets is null)
-            {
-                throw new ArgumentNullException(nameof(secrets), "Requires a collection of secrets to be successful");
-            }
-
+            ArgumentNullException.ThrowIfNull(secrets);
             return new SecretsResult(secrets.ToArray());
         }
 
@@ -137,18 +133,39 @@ namespace Arcus.Security
     }
 
     /// <summary>
+    /// Represents the possible failures in the <see cref="SecretResult"/> occured during the retrieval of secrets
+    /// using the <see cref="ISecretProvider.GetSecret"/> or <see cref="ISecretProvider.GetSecretAsync"/> operations.
+    /// </summary>
+    public enum SecretFailure
+    {
+        /// <summary>
+        /// Gets the secret failure when a secret cannot be found by the <see cref="ISecretProvider"/>.
+        /// This is an expected failure when working with a secret store with multiple providers that complement each other.
+        /// </summary>
+        NotFound = 0,
+
+        /// <summary>
+        /// Gets the secret failure when the retrieval of the secret was interrupted by the <see cref="ISecretProvider"/>.
+        /// This is an unexpected failure that could indicate a problem with the provider's implementation.
+        /// </summary>
+        Interrupted
+    }
+
+    /// <summary>
     /// Represents the result of a secret retrieval operation, which can either be successful or contain failure information.
     /// </summary>
     public class SecretResult
     {
         private readonly string _secretName, _secretValue, _secretVersion, _failureMessage;
+        private readonly SecretFailure _failure;
         private readonly DateTimeOffset _expirationDate;
         private readonly Exception _failureCause;
 
-        private SecretResult(string failureMessage, Exception failureCause)
+        private SecretResult(SecretFailure failure, string failureMessage, Exception failureCause)
         {
             ArgumentException.ThrowIfNullOrWhiteSpace(failureMessage);
 
+            _failure = failure;
             _failureMessage = failureMessage;
             _failureCause = failureCause;
 
@@ -187,17 +204,25 @@ namespace Arcus.Security
         /// <summary>
         /// Creates a failed <see cref="SecretResult"/> instance with the given failure message.
         /// </summary>
-        public static SecretResult Failure(string failureMessage)
+        public static SecretResult NotFound(string failureMessage)
         {
-            return new SecretResult(failureMessage, null);
+            return new SecretResult(SecretFailure.NotFound, failureMessage, null);
         }
 
         /// <summary>
         /// Creates a failed <see cref="SecretResult"/> instance with the given failure message and cause.
         /// </summary>
-        public static SecretResult Failure(string failureMessage, Exception failureCause)
+        public static SecretResult NotFound(string failureMessage, Exception failureCause)
         {
-            return new SecretResult(failureMessage, failureCause);
+            return new SecretResult(SecretFailure.NotFound, failureMessage, failureCause);
+        }
+
+        /// <summary>
+        /// Creates a failed <see cref="SecretResult"/> instance with a given failure message and cause.
+        /// </summary>
+        public static SecretResult Interrupted(string failureMessage, Exception failureCause)
+        {
+            return new SecretResult(SecretFailure.Interrupted, failureMessage, failureCause);
         }
 
         /// <summary>
@@ -224,6 +249,11 @@ namespace Arcus.Security
         /// Gets the expiration date of the secret that was retrieved from the secret provider.
         /// </summary>
         public DateTimeOffset Expiration => IsSuccess ? _expirationDate : throw new InvalidOperationException($"[Arcus] cannot get secret expiration date as the secret retrieval failed: {_failureMessage}", _failureCause);
+
+        /// <summary>
+        /// Gets the type of failure that occured during the secret retrieval.
+        /// </summary>
+        public SecretFailure Failure => !IsSuccess ? _failure : throw new InvalidOperationException($"[Arcus] cannot get secret failure as the secret retrieval was successful: {_secretName}");
 
         /// <summary>
         /// Gets the failure message that was returned when the secret retrieval failed.
@@ -354,7 +384,7 @@ namespace Arcus.Security
 
         internal sealed class NullMemoryCache : IMemoryCache
         {
-            public ICacheEntry CreateEntry(object key) => new NullCacheEntry();
+            public ICacheEntry CreateEntry(object key) => NullCacheEntry.Default;
             public void Remove(object key) { }
             public void Dispose() { }
             public bool TryGetValue(object key, out object value)
@@ -366,6 +396,8 @@ namespace Arcus.Security
 
         internal sealed class NullCacheEntry : ICacheEntry
         {
+            internal static NullCacheEntry Default { get; } = new();
+
             public object Key { get; }
             public object Value { get; set; }
             public DateTimeOffset? AbsoluteExpiration { get; set; }

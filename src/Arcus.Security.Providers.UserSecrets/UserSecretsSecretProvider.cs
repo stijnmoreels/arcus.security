@@ -3,6 +3,7 @@ using System.IO;
 using Microsoft.Extensions.Configuration.Json;
 using Microsoft.Extensions.Configuration.UserSecrets;
 using Microsoft.Extensions.FileProviders;
+using static Arcus.Security.SecretResult;
 
 namespace Arcus.Security.Providers.UserSecrets
 {
@@ -73,8 +74,8 @@ namespace Arcus.Security.Providers.UserSecrets
         public SecretResult GetSecret(string secretName)
         {
             return _jsonProvider.TryGet(secretName, out string secretValue)
-                ? SecretResult.Success(secretName, secretValue)
-                : SecretResult.Failure($"No secret found '{secretName}' in user secrets at '{_jsonProvider.Source.Path}'");
+                ? Success(secretName, secretValue)
+                : NotFound($"No secret found '{secretName}' in user secrets at '{_jsonProvider.Source.Path}'");
         }
 
         /// <summary>

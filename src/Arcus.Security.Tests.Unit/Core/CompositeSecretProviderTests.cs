@@ -4,6 +4,8 @@ using System.Threading.Tasks;
 using Arcus.Security.Tests.Core.Assertion;
 using Arcus.Security.Tests.Core.Fixture;
 using Arcus.Security.Tests.Unit.Core.Stubs;
+using Bogus;
+using Microsoft.Extensions.Hosting;
 using Xunit;
 using Xunit.Abstractions;
 using static Arcus.Security.Tests.Core.Fixture.SecretStoreTestContext;
@@ -29,7 +31,7 @@ namespace Arcus.Security.Tests.Unit.Core
             // Act
             secretStore.WhenSecretStore(store =>
             {
-                store.AddInMemory(Secrets, options =>
+                store.AddInMemory(options =>
                 {
                     options.ProviderName = providerName;
                 });
@@ -97,7 +99,7 @@ namespace Arcus.Security.Tests.Unit.Core
             // Act
             secretStore.WhenSecretStore(store =>
             {
-                store.AddInMemory(Secrets);
+                store.AddInMemory();
             });
 
             // Assert
@@ -111,7 +113,7 @@ namespace Arcus.Security.Tests.Unit.Core
         }
 
         [Fact]
-        public async Task GetSecret_WithCachingConfigured_GetsCachedSecretViaProvider()
+        public async Task GetSecret_WithCachingConfigured_GetsCachedSecret()
         {
             // Arrange
             using var secretStore = GivenSecretStore();
@@ -119,8 +121,8 @@ namespace Arcus.Security.Tests.Unit.Core
             // Act
             secretStore.WhenSecretStore(store =>
             {
-                store.AddInMemory(Secrets);
-                store.UseCaching(Bogus.Date.Timespan());
+                store.AddInMemory();
+                store.UseCaching();
             });
 
             // Assert
@@ -134,26 +136,51 @@ namespace Arcus.Security.Tests.Unit.Core
         }
 
         [Fact]
-        public async Task GetSecretWithIgnoreCache_WithCachingConfigured_GetsFreshSecretViaProvider()
+        public async Task GetSecretWithIgnoreCache_WithCachingConfigured_GetsFreshSecret()
         {
             // Arrange
             using var secretStore = GivenSecretStore();
-
-            // Act
             secretStore.WhenSecretStore(store =>
             {
-                store.UseCaching(Bogus.Date.Timespan());
-                store.AddInMemory(Secrets);
+                store.UseCaching();
+                store.AddInMemory();
             });
 
-            // Assert
             var provider = secretStore.ShouldContainProvider<InMemorySecretProvider>();
 
             Secret oldSecret = provider.GetAnySecret();
             await secretStore.ShouldContainSecretAsync(oldSecret, opt => opt.UseCache = false);
 
+            // Act
             Secret freshSecret = provider.RegenerateSecret(oldSecret);
+
+            // Assert
             await secretStore.ShouldContainSecretAsync(freshSecret, opt => opt.UseCache = false);
+        }
+
+        [Fact]
+        public async Task GetCachedSecret_AfterInvalidateSecret_GetsFreshSecret()
+        {
+            // Arrange
+            using var secretStore = GivenSecretStore();
+            secretStore.WhenSecretStore(store =>
+            {
+                store.UseCaching();
+                store.AddInMemory();
+            });
+
+            var provider = secretStore.ShouldContainProvider<InMemorySecretProvider>();
+
+            Secret oldSecret = provider.GetAnySecret();
+            await secretStore.ShouldContainSecretAsync(oldSecret);
+
+            Secret freshSecret = provider.RegenerateSecret(oldSecret);
+
+            // Act
+            await secretStore.WhenSecretStoreAsync(store => store.Cache.InvalidateSecretAsync(oldSecret));
+
+            // Assert
+            await secretStore.ShouldContainSecretAsync(freshSecret);
         }
 
         [Fact]
@@ -189,6 +216,21 @@ namespace Arcus.Security.Tests.Unit.Core
         private SecretStoreTestContext GivenSecretStore()
         {
             return Given(Logger);
+        }
+    }
+
+    internal static class ISecretStoreExtensions
+    {
+        private static readonly Faker Bogus = new();
+
+        internal static void UseCaching(this SecretStoreBuilder builder)
+        {
+            builder.UseCaching(Bogus.Date.Timespan());
+        }
+
+        internal static Task InvalidateSecretAsync(this SecretStoreCaching caching, Secret secret)
+        {
+            return caching.InvalidateSecretAsync(secret.Name);
         }
     }
 }

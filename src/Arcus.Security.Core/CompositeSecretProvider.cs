@@ -150,27 +150,27 @@ namespace Arcus.Security.Core
                 }
                 catch (Exception exception)
                 {
-                    failures.Add((providerName, SecretResult.Failure($"Secret provider '{providerName}' failed to find secret '{secretName}' due to an unexpected failure", exception)));
-                    _logger.LogWarning(exception, "Secret store could not found secret '{SecretName}' in secret provider '{ProviderName}' due to an exception while querying for the secret", secretName, providerName);
+                    failures.Add((providerName, SecretResult.Interrupted($"Secret provider '{providerName}' failed to query secret '{secretName}' due to an unexpected failure", exception)));
+                    _logger.LogWarning(exception, "Secret store failed to query secret '{SecretName}' in secret provider '{ProviderName}' due to an exception while querying for the secret", secretName, providerName);
                 }
             }
 
-            SecretResult noneFoundFailure = CreateSecretResultNoneFoundFailure(secretName, failures);
-            return noneFoundFailure;
+            SecretResult finalFailure = CreateFinalFailureSecretResult(secretName, failures);
+            return finalFailure;
         }
 
-        private SecretResult CreateSecretResultNoneFoundFailure(string secretName, Collection<(string providerName, SecretResult result)> failures)
+        private SecretResult CreateFinalFailureSecretResult(string secretName, Collection<(string providerName, SecretResult result)> failures)
         {
             string messages = failures.Count == 0
                 ? "No secret providers were registered in the secret store"
-                : string.Concat(failures.Select(failure => $"{Environment.NewLine}\t- ({failure.providerName}): {failure.result.FailureMessage}"));
+                : string.Concat(failures.Select(failure => $"{Environment.NewLine}\t- ({failure.providerName}): {failure.result.Failure} {failure.result.FailureMessage}"));
 
             var failureMessage = $"No registered secret provider could found secret '{secretName}': {messages}";
             var failureCauses = failures.Where(f => f.result.FailureCause != null).Select(f => f.result.FailureCause).ToArray();
 
             if (failureCauses.Length <= 0)
             {
-                return SecretResult.Failure(failureMessage);
+                return SecretResult.NotFound(failureMessage);
             }
 
             var failureCause = failureCauses.Length == 1
@@ -178,7 +178,10 @@ namespace Arcus.Security.Core
                 : new AggregateException(failureCauses);
 
             _logger.LogError(failureCause, failureMessage);
-            return SecretResult.Failure(failureMessage, failureCause);
+
+            return failures.Any(f => f.result.Failure is SecretFailure.Interrupted)
+                ? SecretResult.Interrupted(failureMessage, failureCause)
+                : SecretResult.NotFound(failureMessage, failureCause);
         }
 
         private Dictionary<string, Lazy<ISecretProvider>> CreateGroupedSecretProviders(

@@ -92,7 +92,7 @@ namespace Arcus.Security.Providers.HashiCorp
                 return SecretResult.Success(value.ToString(), version);
             }
 
-            return SecretResult.Failure($"No secret found in HashiCorp secrets {Options.KeyValueVersion} {Options.KeyValueMountPoint} for '{secretName}'");
+            return SecretResult.NotFound($"No secret found in HashiCorp secrets {Options.KeyValueVersion} {Options.KeyValueMountPoint} for '{secretName}'");
         }
 
         /// <summary>

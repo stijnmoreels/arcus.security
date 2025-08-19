@@ -80,10 +80,10 @@ namespace Arcus.Security.Providers.AzureKeyVault
             ArgumentException.ThrowIfNullOrWhiteSpace(secretName);
             ArgumentOutOfRangeException.ThrowIfLessThan(amountOfVersions, 1);
 
-            (bool isFound, string[] versions) = await DetermineVersionsAsync(secretName);
-            if (!isFound)
+            (SecretResult isFound, string[] versions) = await DetermineVersionsAsync(secretName);
+            if (!isFound.IsSuccess)
             {
-                return SecretsResult.Create([SecretResult.Failure($"No '{secretName}' secret found in Azure Key Vault secrets")]);
+                return SecretsResult.Create([isFound]);
             }
 
             var results = new Collection<SecretResult>();
@@ -101,14 +101,16 @@ namespace Arcus.Security.Providers.AzureKeyVault
             return SecretsResult.Create(results);
         }
 
-        private Task<(bool isFound, string[] versions)> DetermineVersionsAsync(string secretName)
+        private Task<(SecretResult isFound, string[] versions)> DetermineVersionsAsync(string secretName)
         {
             return ThrottleTooManyRequestsAsync(async () =>
             {
                 AsyncPageable<SecretProperties> properties = _client.GetPropertiesOfSecretVersionsAsync(secretName);
 
                 var versions = new Collection<SecretProperties>();
+#pragma warning disable S3267 // .NET 10 does not support asynchronous .Where(...) yet.
                 await foreach (SecretProperties property in properties)
+#pragma warning restore S3267
                 {
                     if (property.Enabled is true)
                     {
@@ -121,9 +123,9 @@ namespace Arcus.Security.Providers.AzureKeyVault
                             .Select(version => version.Version)
                             .ToArray();
 
-                return (isFound: true, versionNumbers);
+                return (isFound: SecretResult.Success(secretName, "<placeholder>"), versionNumbers);
 
-            }, notFoundValue: (isFound: false, []));
+            }, createFailedResult: ex => (CreateFailedSecretResult(secretName, ex), []));
         }
 
         private static Task<SecretResult> ThrottleTooManyRequestsAsync(
@@ -133,18 +135,16 @@ namespace Arcus.Security.Providers.AzureKeyVault
             return ThrottleTooManyRequestsAsync(async () =>
             {
                 KeyVaultSecret response = await secretOperation();
+                SecretResult result = CreateSuccessSecretResult(secretName, response);
 
-                return SecretResult.Success(secretName,
-                    response.Value,
-                    response.Properties.Version,
-                    response.Properties.ExpiresOn ?? default);
+                return result;
 
-            }, notFoundValue: SecretResult.Failure($"No '{secretName}' secret found in Azure Key Vault secrets"));
+            }, ex => CreateFailedSecretResult(secretName, ex));
         }
 
         private static async Task<TResult> ThrottleTooManyRequestsAsync<TResult>(
             Func<Task<TResult>> secretOperation,
-            TResult notFoundValue)
+            Func<RequestFailedException, TResult> createFailedResult)
         {
             try
             {
@@ -157,12 +157,7 @@ namespace Arcus.Security.Providers.AzureKeyVault
             }
             catch (RequestFailedException requestFailedException)
             {
-                if (requestFailedException.Status == 404)
-                {
-                    return notFoundValue;
-                }
-
-                throw;
+                return createFailedResult(requestFailedException);
             }
         }
 
@@ -187,21 +182,14 @@ namespace Arcus.Security.Providers.AzureKeyVault
                 RetryPolicy retryPolicy = GetExponentialBackOffRetrySyncPolicy<Exception>(
                     ex => ex is RequestFailedException { Status: 429 });
 
-                var response = retryPolicy.Execute(secretOperation);
+                KeyVaultSecret response = retryPolicy.Execute(secretOperation);
+                SecretResult result = CreateSuccessSecretResult(secretName, response);
 
-                return SecretResult.Success(secretName,
-                    response.Value,
-                    response.Properties.Version,
-                    response.Properties.ExpiresOn ?? default);
+                return result;
             }
             catch (RequestFailedException requestFailedException)
             {
-                if (requestFailedException.Status == 404)
-                {
-                    return SecretResult.Failure($"No '{secretName}' secret found in Azure Key Vault secrets", requestFailedException);
-                }
-
-                throw;
+                return CreateFailedSecretResult(secretName, requestFailedException);
             }
         }
 
@@ -217,6 +205,21 @@ namespace Arcus.Security.Providers.AzureKeyVault
 
             return Policy.Handle(exceptionPredicate)
                          .WaitAndRetry(5, attempt => TimeSpan.FromSeconds(Math.Pow(2, attempt - 1)));
+        }
+
+        private static SecretResult CreateSuccessSecretResult(string secretName, KeyVaultSecret response)
+        {
+            return SecretResult.Success(secretName,
+                response.Value,
+                response.Properties.Version,
+                response.Properties.ExpiresOn ?? default);
+        }
+
+        private static SecretResult CreateFailedSecretResult(string secretName, RequestFailedException ex)
+        {
+            return ex.Status is 404
+                ? SecretResult.NotFound($"no '{secretName}' secret found in Azure Key Vault secrets", ex)
+                : SecretResult.Interrupted($"interaction with Azure Key Vault failed for secret '{secretName}'", ex);
         }
     }
 }

@@ -29,7 +29,7 @@ namespace Arcus.Security.Core.Providers
         {
             string secretValue = _configuration[secretName];
             return secretValue is null
-                ? SecretResult.Failure($"No secret found in application configuration for '{secretName}'")
+                ? SecretResult.NotFound($"No secret found in application configuration for '{secretName}'")
                 : SecretResult.Success(secretName, secretValue);
         }
     }

@@ -35,7 +35,7 @@ namespace Arcus.Security.Tests.Unit.Core.Stubs
         {
             return Secrets.TryGetValue(secretName, out string secretValue)
                 ? SecretResult.Success(secretName, secretValue)
-                : SecretResult.Failure($"No in-memory secret found for '{secretName}'");
+                : SecretResult.NotFound($"No in-memory secret found for '{secretName}'");
         }
 
         /// <summary>
@@ -52,6 +52,20 @@ namespace Arcus.Security.Tests.Unit.Core.Stubs
 
     public static class InMemorySecretProviderExtensions
     {
+        private static readonly Faker Bogus = new();
+
+        /// <summary>
+        /// Adds the in-memory secret provider to the secret store builder.
+        /// </summary>
+        /// <param name="builder">The secret store builder.</param>
+        /// <param name="configureOptions">The action to configure the options for the in-memory secret provider.</param>
+        public static SecretStoreBuilder AddInMemory(
+            this SecretStoreBuilder builder,
+            Action<SecretProviderOptions> configureOptions = null)
+        {
+            return AddInMemory(builder, GenerateSecrets(), configureOptions);
+        }
+
         /// <summary>
         /// Adds the in-memory secret provider to the secret store builder.
         /// </summary>
@@ -64,6 +78,12 @@ namespace Arcus.Security.Tests.Unit.Core.Stubs
         {
             ArgumentNullException.ThrowIfNull(builder);
             return builder.AddProvider(new InMemorySecretProvider(secrets), configureOptions);
+        }
+
+        private static Dictionary<string, string> GenerateSecrets()
+        {
+            return Bogus.Make(Bogus.Random.Int(1, 5), () => new KeyValuePair<string, string>(Bogus.Random.Guid().ToString(), Bogus.Lorem.Word()))
+                        .ToDictionary();
         }
     }
 }

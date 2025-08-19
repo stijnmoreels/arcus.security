@@ -87,11 +87,17 @@ namespace Arcus.Security.Tests.Core.Fixture
             });
         }
 
+        public async Task WhenSecretStoreAsync(Func<ISecretStore, Task> operation)
+        {
+            var store = GetHost().Services.GetRequiredService<ISecretStore>();
+            await operation(store);
+        }
+
         private sealed class NeverFoundSecretProvider : ISecretProvider
         {
             public SecretResult GetSecret(string secretName)
             {
-                return SecretResult.Failure($"No secret found for '{secretName}'");
+                return SecretResult.NotFound($"No secret found for '{secretName}'");
             }
         }
 

@@ -2,6 +2,7 @@
 using System.IO;
 using Microsoft.Extensions.Configuration.KeyPerFile;
 using Microsoft.Extensions.FileProviders;
+using static Arcus.Security.SecretResult;
 
 namespace Arcus.Security.Providers.DockerSecrets
 {
@@ -52,8 +53,8 @@ namespace Arcus.Security.Providers.DockerSecrets
         public SecretResult GetSecret(string secretName)
         {
             return _provider.TryGet(secretName, out string secretValue)
-                ? SecretResult.Success(secretName, secretValue)
-                : SecretResult.Failure($"No '{secretName}' secret found in Docker secrets at '{_secretsDirectoryPath}'");
+                ? Success(secretName, secretValue)
+                : NotFound($"No '{secretName}' secret found in Docker secrets at '{_secretsDirectoryPath}'");
         }
 
         /// <summary>
