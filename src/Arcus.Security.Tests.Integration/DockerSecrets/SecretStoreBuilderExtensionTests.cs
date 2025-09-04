@@ -1,12 +1,11 @@
-﻿using Arcus.Security.Core;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Hosting;
-using System;
+﻿using System;
 using System.IO;
 using System.Threading.Tasks;
+using Arcus.Security.Core;
 using Arcus.Security.Providers.DockerSecrets;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Xunit;
-using Xunit.Abstractions;
 
 namespace Arcus.Security.Tests.Integration.DockerSecrets
 {
@@ -47,7 +46,7 @@ namespace Arcus.Security.Tests.Integration.DockerSecrets
         {
             // Arrange
             var provider = new DockerSecretsSecretProvider(_secretLocation);
-            
+
             // Act
             await SetSecretAsync("MyExistingSecret", "foo");
 
@@ -88,10 +87,10 @@ namespace Arcus.Security.Tests.Integration.DockerSecrets
         {
             // Arrange
             var hostBuilder = new HostBuilder();
-            
+
             // Act
             hostBuilder.ConfigureSecretStore((config, stores) => stores.AddDockerSecrets("./foo"));
-            
+
             // Assert
             Assert.ThrowsAny<ArgumentException>(() => hostBuilder.Build());
         }
@@ -101,10 +100,10 @@ namespace Arcus.Security.Tests.Integration.DockerSecrets
         {
             // Arrange
             var hostBuilder = new HostBuilder();
-            
+
             // Act
             hostBuilder.ConfigureSecretStore((config, stores) => stores.AddDockerSecrets("/foo/bar"));
-            
+
             // Assert
             Assert.Throws<DirectoryNotFoundException>(() => hostBuilder.Build());
         }

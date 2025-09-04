@@ -1,9 +1,9 @@
 ﻿using System;
+using Arcus.Security.Tests.Integration.Logging;
 using Arcus.Testing;
 using Serilog;
-using Serilog.Configuration;
 using Serilog.Core;
-using Xunit.Abstractions;
+using Xunit;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
 
 namespace Arcus.Security.Tests.Integration
@@ -46,7 +46,7 @@ namespace Arcus.Security.Tests.Integration
 
             _disposed = true;
         }
-        
+
         /// <summary>
         /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
         /// </summary> 

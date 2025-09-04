@@ -14,7 +14,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Newtonsoft.Json.Linq;
 using Xunit;
-using Xunit.Abstractions;
 
 [assembly: UserSecretsId(SecretStoreBuilderExtensionsTests.TestSecretsId)]
 
@@ -370,7 +369,7 @@ namespace Arcus.Security.Tests.Integration.UserSecrets
             // Act
             hostBuilder.ConfigureSecretStore((config, stores) =>
             {
-                stores.AddUserSecrets(assembly, secretName => secretName.Replace(".",":"));
+                stores.AddUserSecrets(assembly, secretName => secretName.Replace(".", ":"));
             });
 
             // Assert
@@ -583,7 +582,7 @@ namespace Arcus.Security.Tests.Integration.UserSecrets
             Directory.CreateDirectory(secretsDirPath);
             _tempDirectories.Add(secretsDirPath);
 
-            IConfiguration config = 
+            IConfiguration config =
                 new ConfigurationBuilder()
                     .AddJsonFile(secretsFilePath, optional: true)
                     .Build();

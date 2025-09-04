@@ -1,6 +1,5 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Data;
 using System.Linq;
 using System.Security.Authentication;
 using System.Security.Cryptography;
@@ -15,10 +14,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Moq;
-using VaultSharp.V1.AuthMethods.UserPass;
 using VaultSharp;
+using VaultSharp.V1.AuthMethods.UserPass;
 using Xunit;
-using Xunit.Sdk;
 
 namespace Arcus.Security.Tests.Unit.Core.Extensions
 {
@@ -47,12 +45,12 @@ namespace Arcus.Security.Tests.Unit.Core.Extensions
             // Act
             builder.ConfigureSecretStore((config, stores) =>
             {
-                stores.AddProvider(serviceProvider => throw new TestClassException("Some failure"));
+                stores.AddProvider(serviceProvider => throw new ApplicationException("Some failure"));
             });
 
             // Assert
             IHost host = builder.Build();
-            Assert.Throws<TestClassException>(() => host.Services.GetService<ISecretProvider>());
+            Assert.Throws<ApplicationException>(() => host.Services.GetService<ISecretProvider>());
         }
 
         [Fact]
@@ -133,7 +131,7 @@ namespace Arcus.Security.Tests.Unit.Core.Extensions
             const string secretKey = "MySecret";
             string secretValue = $"secret-{Guid.NewGuid()}";
             var stubProvider = new InMemorySecretProvider(new Dictionary<string, string> { [secretKey] = secretValue });
-            
+
             var builder = new HostBuilder();
 
             // Act
@@ -153,7 +151,7 @@ namespace Arcus.Security.Tests.Unit.Core.Extensions
             string secretKey1 = "MySecret1";
             string secretValue1 = $"secret-{Guid.NewGuid()}";
             var stubProvider1 = new InMemorySecretProvider(new Dictionary<string, string> { [secretKey1] = secretValue1 });
-            
+
             string secretKey2 = "MySecret2";
             string secretValue2 = $"secret-{Guid.NewGuid()}";
             var stubProvider2 = new InMemorySecretProvider(new Dictionary<string, string> { [secretKey2] = secretValue2 });
@@ -297,7 +295,7 @@ namespace Arcus.Security.Tests.Unit.Core.Extensions
             var provider = host.Services.GetRequiredService<ISecretProvider>();
 
             var exception = await Assert.ThrowsAsync<AggregateException>(() => provider.GetSecretAsync("some secret name"));
-            Assert.Collection(exception.InnerExceptions, 
+            Assert.Collection(exception.InnerExceptions,
                 ex => Assert.IsType<CryptographicException>(ex),
                 ex => Assert.IsType<AuthenticationException>(ex));
         }
@@ -491,7 +489,7 @@ namespace Arcus.Security.Tests.Unit.Core.Extensions
             var stubProvider1 = new InMemorySecretProvider();
             var stubProvider2 = new InMemorySecretProvider();
             var builder = new HostBuilder();
-            
+
             // Act
             builder.ConfigureSecretStore((config, stores) =>
             {
@@ -521,7 +519,7 @@ namespace Arcus.Security.Tests.Unit.Core.Extensions
             var stubProvider1 = new InMemoryCachedSecretProvider();
             var stubProvider2 = new InMemoryCachedSecretProvider();
             var builder = new HostBuilder();
-            
+
             // Act
             builder.ConfigureSecretStore((config, stores) =>
             {
@@ -549,7 +547,7 @@ namespace Arcus.Security.Tests.Unit.Core.Extensions
             var stubProvider1 = new InMemorySecretProvider();
             var stubProvider2 = new InMemoryCachedSecretProvider();
             var builder = new HostBuilder();
-            
+
             // Act
             builder.ConfigureSecretStore((config, stores) =>
             {
@@ -596,7 +594,7 @@ namespace Arcus.Security.Tests.Unit.Core.Extensions
             // Arrange
             var name = $"provider-{Guid.NewGuid()}";
             var builder = new HostBuilder();
-            
+
             // Act
             builder.ConfigureSecretStore((config, stores) =>
             {
@@ -679,14 +677,14 @@ namespace Arcus.Security.Tests.Unit.Core.Extensions
             // Arrange
             string name = $"duplicate-name-{Guid.NewGuid()}";
             var builder = new HostBuilder();
-            
+
             // Act
             builder.ConfigureSecretStore((config, stores) =>
             {
                 stores.AddProvider(new InMemorySecretProvider(), options => options.Name = name)
                       .AddProvider(new InMemorySecretProvider(), options => options.Name = name);
             });
-            
+
             // Assert
             using (IHost host = builder.Build())
             {
@@ -702,14 +700,14 @@ namespace Arcus.Security.Tests.Unit.Core.Extensions
             // Arrange
             string name = $"duplicate-name-{Guid.NewGuid()}";
             var builder = new HostBuilder();
-            
+
             // Act
             builder.ConfigureSecretStore((config, stores) =>
             {
                 stores.AddProvider(new InMemoryCachedSecretProvider(), options => options.Name = name)
                       .AddProvider(new InMemoryCachedSecretProvider(), options => options.Name = name);
             });
-            
+
             // Assert
             using (IHost host = builder.Build())
             {
